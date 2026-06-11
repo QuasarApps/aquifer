@@ -43,7 +43,7 @@ public fun <K : Any, V : Any> Aquifer<K, V>.collectAsState(
     minActiveState: Lifecycle.State = Lifecycle.State.STARTED,
     context: CoroutineContext = EmptyCoroutineContext,
 ): State<DataState<V>> = rememberStream(key, freshness).collectAsStateWithLifecycle(
-    initialValue = DataState.Loading(null),
+    initialValue = DataState.Loading<V>(null),
     lifecycle = lifecycleOwner.lifecycle,
     minActiveState = minActiveState,
     context = context,
