@@ -249,6 +249,39 @@ class PersistenceIntegrationTest {
     }
 
     @Test
+    fun `network only get bypasses persistence entirely`() = runTest {
+        val disk = FakeSourceOfTruth<String, String>()
+        disk.storage["k"] = PersistedEntry("from-disk", writtenAtMillis = 0)
+        val store = aquifer<String, String> {
+            scope(backgroundScope)
+            fetcher { "fetched" }
+            persistence(disk)
+        }
+
+        assertEquals("fetched", store.fresh("k"))
+
+        assertEquals(0, disk.reads)
+    }
+
+    @Test
+    fun `network only stream bypasses persistence entirely`() = runTest {
+        val disk = FakeSourceOfTruth<String, String>()
+        disk.storage["k"] = PersistedEntry("from-disk", writtenAtMillis = 0)
+        val store = aquifer<String, String> {
+            scope(backgroundScope)
+            fetcher { "fetched" }
+            persistence(disk)
+        }
+
+        store.stream("k", Freshness.NetworkOnly).test {
+            assertEquals(DataState.Loading(null), awaitItem())
+            assertEquals(DataState.Content("fetched", Origin.FETCHER, isStale = false), awaitItem())
+        }
+
+        assertEquals(0, disk.reads)
+    }
+
+    @Test
     fun `memory hits do not touch persistence`() = runTest {
         val disk = FakeSourceOfTruth<String, String>()
         val store = aquifer<String, String> {

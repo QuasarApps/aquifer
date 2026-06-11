@@ -44,15 +44,16 @@ import kotlin.io.path.writeText
  * ### Storage model
  *
  * - One file per key, named by the SHA-256 of the encoded key — arbitrary key strings are
- *   filesystem-safe and collision-free.
+ *   filesystem-safe, and the chance of two keys colliding is cryptographically negligible.
  * - [directory] must be dedicated to this store: [deleteAll] removes every `.json` file in it.
  * - Writes go to a temp file first and are atomically moved into place, so readers never see
  *   a torn file — a crash mid-write leaves the previous entry intact.
- * - Unreadable or undecodable files are treated as absent: [read] returns `null` and deletes
- *   the corrupt file so the slot heals on the next write. Schema evolution is tolerated by
- *   default: [DEFAULT_JSON] ignores unknown keys, so adding fields to your model doesn't
- *   invalidate existing cache files (removing non-optional fields does — bump the directory
- *   name when making breaking model changes).
+ * - Undecodable files are treated as absent: [read] returns `null` and deletes the corrupt
+ *   file so the slot heals on the next write. A read that fails with a (possibly transient)
+ *   I/O error is also reported as absent, but the file is kept — it may read fine next time.
+ *   Schema evolution is tolerated by default: [DEFAULT_JSON] ignores unknown keys, so adding
+ *   fields to your model doesn't invalidate existing cache files (removing non-optional
+ *   fields does — bump the directory name when making breaking model changes).
  *
  * ### Concurrency
  *
@@ -89,8 +90,10 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             heal(file)
         } catch (corrupt: IllegalArgumentException) {
             heal(file)
-        } catch (corrupt: IOException) {
-            heal(file)
+        } catch (transient: IOException) {
+            // Possibly transient (permissions, mounts, pressure): report absent but keep the
+            // file — deleting here could destroy a perfectly good entry.
+            null
         }
     }
 

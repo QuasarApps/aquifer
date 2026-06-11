@@ -104,7 +104,8 @@ internal class RealAquifer<K : Any, V : Any>(
 
     override suspend fun get(key: K, freshness: Freshness): V {
         checkOpen()
-        val entry = load(key)?.entry
+        // NetworkOnly bypasses cached reads entirely: no memory lookup, no persistence I/O.
+        val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
         val usable = entry != null && !isExpired(entry.writtenAtMillis)
         return when (freshness) {
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
@@ -165,9 +166,10 @@ internal class RealAquifer<K : Any, V : Any>(
      * and live event delivery.
      */
     private suspend fun FlowCollector<Event<K, V>>.prime(key: K, freshness: Freshness) {
-        val snapshot = load(key)
+        // NetworkOnly bypasses cached reads entirely: no snapshot, no persistence I/O.
+        val snapshot = if (freshness == Freshness.NetworkOnly) null else load(key)
         val entry = snapshot?.entry
-        if (snapshot != null && freshness != Freshness.NetworkOnly) {
+        if (snapshot != null) {
             emit(Event.Updated(key, snapshot.entry.value, snapshot.origin, snapshot.entry.writtenAtMillis))
         }
         // A fetch that started before this collector subscribed broadcast its Fetching event
