@@ -1,6 +1,7 @@
 package io.github.quasarapps.aquifer.internal
 
 import io.github.quasarapps.aquifer.Aquifer
+import io.github.quasarapps.aquifer.AquiferEvents
 import io.github.quasarapps.aquifer.CacheMissException
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Freshness
@@ -18,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.onSubscription
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class RealAquifer<K : Any, V : Any>(
     private val fetcher: suspend (key: K) -> V,
@@ -37,6 +41,8 @@ internal class RealAquifer<K : Any, V : Any>(
     private val clock: WallClock,
     parentScope: CoroutineScope?,
     private val persistence: SourceOfTruth<K, V>? = null,
+    private val retry: RetryPolicy = RetryPolicy.NONE,
+    private val listener: AquiferEvents<K>? = null,
 ) : Aquifer<K, V> {
 
     private val job = SupervisorJob(parentScope?.coroutineContext?.get(Job))
@@ -49,6 +55,9 @@ internal class RealAquifer<K : Any, V : Any>(
     private val memory = MemoryCache<K, V>(maxEntries)
     private val inFlight = ConcurrentHashMap<K, Deferred<V>>()
     private val closed = AtomicBoolean(false)
+
+    /** Reference counts of keys with active, fetch-capable stream collectors. */
+    private val activeKeys = ConcurrentHashMap<K, Int>()
 
     /**
      * Single broadcast bus for all keys; streams filter for their key.
@@ -67,39 +76,51 @@ internal class RealAquifer<K : Any, V : Any>(
         checkOpen()
         return flow {
             checkOpen()
-            // Last value this collector has seen; backs the `value` field of Loading/Failure.
-            var last: V? = null
-            events
-                .onSubscription { prime(key, freshness) }
-                .buffer(Channel.UNLIMITED)
-                .flowOn(busDrainContext)
-                .collect { event ->
-                    when (event) {
-                        is Event.Updated -> if (event.key == key) {
-                            last = event.value
-                            emit(DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis)))
-                        }
+            // CacheOnly collectors never fetch on their own behalf, so they don't make a key
+            // "active" for revalidation purposes either.
+            val countsAsActive = freshness != Freshness.CacheOnly
+            if (countsAsActive) registerActive(key)
+            try {
+                collectStates(key, freshness)
+            } finally {
+                if (countsAsActive) unregisterActive(key)
+            }
+        }.distinctUntilChanged()
+    }
 
-                        is Event.Fetching -> if (event.key == key) {
-                            emit(DataState.Loading(last))
-                        }
+    private suspend fun FlowCollector<DataState<V>>.collectStates(key: K, freshness: Freshness) {
+        // Last value this collector has seen; backs the `value` field of Loading/Failure.
+        var last: V? = null
+        events
+            .onSubscription { prime(key, freshness) }
+            .buffer(Channel.UNLIMITED)
+            .flowOn(busDrainContext)
+            .collect { event ->
+                when (event) {
+                    is Event.Updated -> if (event.key == key) {
+                        last = event.value
+                        emit(DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis)))
+                    }
 
-                        is Event.Failed -> if (event.key == key) {
-                            emit(DataState.Failure(event.error, last))
-                        }
+                    is Event.Fetching -> if (event.key == key) {
+                        emit(DataState.Loading(last))
+                    }
 
-                        is Event.Invalidated -> if (event.key == key) {
-                            last = null
-                            if (freshness != Freshness.CacheOnly) refresh(key)
-                        }
+                    is Event.Failed -> if (event.key == key) {
+                        emit(DataState.Failure(event.error, last))
+                    }
 
-                        is Event.ClearedAll -> {
-                            last = null
-                            if (freshness != Freshness.CacheOnly) refresh(key)
-                        }
+                    is Event.Invalidated -> if (event.key == key) {
+                        last = null
+                        if (freshness != Freshness.CacheOnly) refresh(key)
+                    }
+
+                    is Event.ClearedAll -> {
+                        last = null
+                        if (freshness != Freshness.CacheOnly) refresh(key)
                     }
                 }
-        }.distinctUntilChanged()
+            }
     }
 
     override suspend fun get(key: K, freshness: Freshness): V {
@@ -153,10 +174,33 @@ internal class RealAquifer<K : Any, V : Any>(
         events.emit(Event.ClearedAll)
     }
 
+    override suspend fun revalidateActive() {
+        checkOpen()
+        for (key in activeKeys.keys) {
+            val entry = load(key)?.entry
+            if (entry == null || isExpired(entry.writtenAtMillis)) refresh(key)
+        }
+    }
+
+    override fun revalidateOn(trigger: Flow<*>) {
+        checkOpen()
+        scope.launch {
+            trigger.collect { revalidateActive() }
+        }
+    }
+
     override fun close() {
         if (closed.compareAndSet(false, true)) {
             job.cancel()
         }
+    }
+
+    private fun registerActive(key: K) {
+        activeKeys.merge(key, 1, Int::plus)
+    }
+
+    private fun unregisterActive(key: K) {
+        activeKeys.computeIfPresent(key) { _, count -> if (count <= 1) null else count - 1 }
     }
 
     /**
@@ -197,17 +241,22 @@ internal class RealAquifer<K : Any, V : Any>(
     private fun refresh(key: K): Deferred<V> {
         inFlight[key]?.let { return it }
         val pending = scope.async(start = CoroutineStart.LAZY) {
+            var attempts = 1
             try {
                 events.emit(Event.Fetching(key))
-                val value = fetcher(key)
+                notify { onFetchStarted(key) }
+                val startedAt = clock.nowMillis()
+                val value = fetchWithRetry(key) { attempts = it }
                 val now = clock.nowMillis()
                 memory.put(key, MemoryCache.Entry(value, now))
                 events.emit(Event.Updated(key, value, Origin.FETCHER, now))
+                notify { onFetchSucceeded(key, (now - startedAt).milliseconds) }
                 persistFetched(key, value, now)
                 value
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
+                notify { onFetchFailed(key, failure, attempts) }
                 events.emit(Event.Failed(key, failure))
                 throw failure
             }
@@ -248,8 +297,9 @@ internal class RealAquifer<K : Any, V : Any>(
             store.write(key, PersistedEntry(value, writtenAtMillis))
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (_: Throwable) {
-            // Swallowed by design; observability hooks for storage failures are on the roadmap.
+        } catch (failure: Throwable) {
+            // Swallowed by design (the fetch already succeeded); surfaced to observers only.
+            notify { onPersistenceWriteFailed(key, failure) }
         }
     }
 
@@ -257,6 +307,38 @@ internal class RealAquifer<K : Any, V : Any>(
         val entry: MemoryCache.Entry<V>,
         val origin: Origin,
     )
+
+    /**
+     * Runs the fetcher with the configured [retry] policy. Reports the current attempt number
+     * through [onAttempt] so the caller can attribute a terminal failure correctly, and
+     * notifies the listener before each backoff sleep. Cancellation is never retried.
+     */
+    private suspend fun fetchWithRetry(key: K, onAttempt: (Int) -> Unit): V {
+        var attempt = 1
+        while (true) {
+            try {
+                return fetcher(key)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                val nextDelay = retry.delayAfter(attempt, failure) ?: throw failure
+                notify { onFetchRetried(key, attempt, failure, nextDelay) }
+                attempt++
+                onAttempt(attempt)
+                delay(nextDelay)
+            }
+        }
+    }
+
+    /** Listener callbacks must never disturb the engine: anything they throw is swallowed. */
+    private inline fun notify(block: AquiferEvents<K>.() -> Unit) {
+        val observer = listener ?: return
+        try {
+            observer.block()
+        } catch (_: Throwable) {
+            // Misbehaving listeners are intentionally ignored.
+        }
+    }
 
     /** Awaits the shared fetch, falling back to [fallback] when the fetch fails (stale-if-error). */
     private suspend fun awaitFetch(key: K, fallback: V?): V {

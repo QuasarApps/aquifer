@@ -136,6 +136,53 @@ writes, SHA-256 file naming for arbitrary keys, and self-healing reads that trea
 files as absent. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight,
 or DataStore — it's four suspend functions.
 
+### Retries with backoff and jitter
+
+Fetches are not retried by default. Opt in per store:
+
+```kotlin
+retry {
+    maxAttempts = 3                      // total, including the first attempt
+    initialDelay = 250.milliseconds      // then ×2 per attempt, capped at maxDelay
+    retryOn = { it is IOException }      // never retries cancellation
+}
+```
+
+Retries happen *inside* the shared single-flight fetch: observers see one `Loading` and one
+terminal state per cycle, and jitter only ever shortens delays so `maxDelay` is a hard cap.
+
+### Refresh on reconnect (or foreground)
+
+`revalidateActive()` refreshes exactly the keys someone is currently looking at — active
+streams — and only if their entries are stale or missing. Wire it to any trigger `Flow`:
+
+```kotlin
+// Flow<Unit> built over ConnectivityManager.NetworkCallback (or ProcessLifecycleOwner):
+val onlineAgain: Flow<Unit> = callbackFlow {
+    val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { trySend(Unit) }
+    }
+    connectivityManager.registerDefaultNetworkCallback(callback)
+    awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+}
+
+users.revalidateOn(onlineAgain)
+```
+
+### Observability
+
+```kotlin
+events(object : AquiferEvents<UserId> {
+    override fun onFetchFailed(key: UserId, error: Throwable, attempts: Int) =
+        Timber.w(error, "fetch failed after $attempts attempts")
+    override fun onPersistenceWriteFailed(key: UserId, error: Throwable) =
+        analytics.count("cache_write_failed")
+})
+```
+
+Hooks cover fetch start/success/failure, every retry, and best-effort persistence write
+failures. Listeners that throw never disturb the engine.
+
 ## Testing your repositories
 
 Aquifer takes time and concurrency as injectable dependencies, so tests are deterministic:
@@ -183,8 +230,8 @@ fun `stale profile is served then revalidated`() = runTest {
 
 - [x] Core: freshness policies, LRU memory cache, deduplication, reactive streams
 - [x] `SourceOfTruth` persistence layer + disk-backed module (survive process death)
-- [ ] Retry policies with exponential backoff and jitter
-- [ ] Revalidate-on-reconnect / observability hooks
+- [x] Retry policies with exponential backoff and jitter
+- [x] Revalidate-on-reconnect (`revalidateOn`) + observability hooks (`AquiferEvents`)
 - [ ] Dokka API docs, binary-compatibility validation, Maven Central publishing
 - [ ] Sample app + Android integration recipes
 

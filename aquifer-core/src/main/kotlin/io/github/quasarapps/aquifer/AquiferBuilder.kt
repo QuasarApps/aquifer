@@ -1,6 +1,7 @@
 package io.github.quasarapps.aquifer
 
 import io.github.quasarapps.aquifer.internal.RealAquifer
+import io.github.quasarapps.aquifer.internal.RetryPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration
 
@@ -30,9 +31,11 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     private var fetcher: (suspend (key: K) -> V)? = null
     private val memoryCache = MemoryCacheConfig()
     private val freshness = FreshnessConfig()
+    private val retry = RetryConfig()
     private var clock: WallClock = WallClock.SYSTEM
     private var scope: CoroutineScope? = null
     private var persistence: SourceOfTruth<K, V>? = null
+    private var events: AquiferEvents<K>? = null
 
     /**
      * The authoritative source of values, typically a network call. Required.
@@ -54,6 +57,16 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     /** Configures freshness behaviour; see [FreshnessConfig]. */
     public fun freshness(configure: FreshnessConfig.() -> Unit) {
         freshness.configure()
+    }
+
+    /** Configures retries for failed fetches; see [RetryConfig]. Fetches are not retried by default. */
+    public fun retry(configure: RetryConfig.() -> Unit) {
+        retry.configure()
+    }
+
+    /** Registers an observer of store activity for logging and metrics; see [AquiferEvents]. */
+    public fun events(listener: AquiferEvents<K>) {
+        events = listener
     }
 
     /**
@@ -94,6 +107,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             clock = clock,
             parentScope = scope,
             persistence = persistence,
+            retry = RetryPolicy(retry),
+            listener = events,
         )
     }
 }
