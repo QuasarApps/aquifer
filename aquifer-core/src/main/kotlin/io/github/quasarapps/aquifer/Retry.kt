@@ -39,17 +39,21 @@ public class RetryConfig internal constructor() {
             field = value
         }
 
-    /** Delay before the first retry. Must be positive. Defaults to 250 ms. */
+    /** Delay before the first retry. Must be positive and finite. Defaults to 250 ms. */
     public var initialDelay: Duration = 250.milliseconds
         set(value) {
-            require(value.isPositive()) { "initialDelay must be positive, was $value" }
+            require(value.isPositive() && value.isFinite()) {
+                "initialDelay must be positive and finite, was $value"
+            }
             field = value
         }
 
-    /** Upper bound for any single delay. Must be positive. Defaults to 30 s. */
+    /** Upper bound for any single delay. Must be positive and finite. Defaults to 30 s. */
     public var maxDelay: Duration = 30.seconds
         set(value) {
-            require(value.isPositive()) { "maxDelay must be positive, was $value" }
+            require(value.isPositive() && value.isFinite()) {
+                "maxDelay must be positive and finite, was $value"
+            }
             field = value
         }
 

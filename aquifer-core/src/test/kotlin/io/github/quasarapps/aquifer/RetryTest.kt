@@ -10,6 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -214,6 +215,18 @@ class RetryTest {
             aquifer<String, String> {
                 fetcher { "v" }
                 retry { multiplier = 0.5 }
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            aquifer<String, String> {
+                fetcher { "v" }
+                retry { initialDelay = Duration.INFINITE }
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            aquifer<String, String> {
+                fetcher { "v" }
+                retry { maxDelay = Duration.INFINITE }
             }
         }
     }
