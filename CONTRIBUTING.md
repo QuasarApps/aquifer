@@ -37,4 +37,5 @@ Releases are cut by tagging: pushing a `v*` tag runs the `release` workflow, whi
 to Maven Central via the Central Portal. It requires these repository secrets:
 `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY` (ASCII-armored PGP),
 and `SIGNING_KEY_PASSWORD`. Bump `version` in the module build files and update
-`CHANGELOG.md` before tagging.
+`CHANGELOG.md` before tagging — the workflow refuses to publish when the tag doesn't match
+the module versions or when the version is a `-SNAPSHOT`.

@@ -108,7 +108,7 @@ fun main(): Unit = runBlocking {
 
     ui2.cancelAndJoin()
     secondProcess.close()
-    banner("Done. Caches live in $cacheDir - run again to start from a warm disk cache.")
+    banner("Done. Cache files live in $cacheDir (cleared at startup so every run is identical).")
 }
 
 private suspend fun Aquifer<Int, Article>.deleteCachesForRepeatableDemo() = invalidateAll()
