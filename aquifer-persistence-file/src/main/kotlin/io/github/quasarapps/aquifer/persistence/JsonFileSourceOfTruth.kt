@@ -114,7 +114,11 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // filesystems may otherwise commit the rename before the data, and a power loss
             // would replace the previous entry with a torn or empty file.
             FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
-                channel.write(ByteBuffer.wrap(encoded.encodeToByteArray()))
+                val buffer = ByteBuffer.wrap(encoded.encodeToByteArray())
+                // A single write() may consume only part of the buffer; drain it fully.
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer)
+                }
                 channel.force(true)
             }
             try {
