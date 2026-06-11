@@ -7,6 +7,30 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Hardening (post-review fixes, pre-0.1.0)
+
+- **Mutation fencing**: `put`/`invalidate`/`invalidateAll` now fence off fetches that were
+  already in flight — their responses can no longer resurrect invalidated data (memory *and*
+  persistence) or clobber newer local writes, and post-invalidation stream refetches start
+  genuinely new requests instead of joining the doomed one.
+- A throwing `revalidateOn` trigger no longer escapes as an uncaught exception (an app crash
+  on Android); it ends only its own subscription and is reported via the new
+  `AquiferEvents.onRevalidationTriggerFailed`.
+- A store whose parent scope is cancelled now reports itself closed: in-flight `get`s fail
+  with `AquiferException` instead of silently cancelling the caller's coroutine, and
+  subsequent calls fail fast instead of hanging.
+- Stream startup no longer performs storage I/O while subscribed to the update bus, so a slow
+  `SourceOfTruth.read` can no longer stall writers and fetch completions store-wide; bus
+  events buffered across the snapshot can no longer regress a collector to an older value.
+- True API 21 compatibility: replaced `ConcurrentHashMap.merge`/`computeIfPresent`
+  (Android API 24+) with CAS loops; documented that `aquifer-persistence-file` requires
+  API 26+ or NIO desugaring.
+- `JsonFileSourceOfTruth` fsyncs before its atomic rename, making the crash-safety claim hold
+  on journaling filesystems.
+- `aquifer-android` now exposes `androidx.lifecycle` as an `api` dependency (it appears in
+  public signatures); release builds skip duplicate unit-test runs.
+- The release workflow's version gate now covers `aquifer-android` too.
+
 ### Added — 0.1.0 scope
 
 **`aquifer-core`**

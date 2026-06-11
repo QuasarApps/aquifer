@@ -25,6 +25,13 @@ android {
     }
 }
 
+// Unit tests are variant-independent here; running them once (debug) halves Robolectric time.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.enableUnitTest = false
+    }
+}
+
 kotlin {
     explicitApi()
     compilerOptions {
@@ -34,7 +41,8 @@ kotlin {
 
 dependencies {
     api(project(":aquifer-core"))
-    implementation(libs.androidx.lifecycle.process)
+    // api, not implementation: Lifecycle appears in public signatures (appForegroundedFlow).
+    api(libs.androidx.lifecycle.process)
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlin.test.junit)

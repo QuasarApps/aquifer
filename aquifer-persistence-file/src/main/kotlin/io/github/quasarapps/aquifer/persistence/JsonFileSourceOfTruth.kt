@@ -11,10 +11,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.CoroutineContext
@@ -46,8 +49,12 @@ import kotlin.io.path.writeText
  * - One file per key, named by the SHA-256 of the encoded key — arbitrary key strings are
  *   filesystem-safe, and the chance of two keys colliding is cryptographically negligible.
  * - [directory] must be dedicated to this store: [deleteAll] removes every `.json` file in it.
- * - Writes go to a temp file first and are atomically moved into place, so readers never see
- *   a torn file — a crash mid-write leaves the previous entry intact.
+ * - Writes go to a temp file that is fsynced and then atomically moved into place, so readers
+ *   never observe a torn file and a crash mid-write leaves the previous entry intact. On the
+ *   rare filesystem without atomic moves a plain replace is used instead, which weakens the
+ *   crash guarantee to best-effort.
+ * - On Android this module requires API 26+ (it is built on `java.nio.file`), or
+ *   `coreLibraryDesugaring` with the NIO-enabled desugaring artifact for lower API levels.
  * - Undecodable files are treated as absent: [read] returns `null` and deletes the corrupt
  *   file so the slot heals on the next write. A read that fails with a (possibly transient)
  *   I/O error is also reported as absent, but the file is kept — it may read fine next time.
@@ -103,7 +110,17 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
         try {
-            temp.writeText(encoded)
+            // Force the temp file's contents to disk before the rename: journaling
+            // filesystems may otherwise commit the rename before the data, and a power loss
+            // would replace the previous entry with a torn or empty file.
+            FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
+                val buffer = ByteBuffer.wrap(encoded.encodeToByteArray())
+                // A single write() may consume only part of the buffer; drain it fully.
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer)
+                }
+                channel.force(true)
+            }
             try {
                 Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             } catch (unsupported: AtomicMoveNotSupportedException) {

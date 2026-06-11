@@ -159,6 +159,28 @@ class RevalidateTest {
     }
 
     @Test
+    fun `a throwing trigger is contained and reported, not crashing the process`() = runTest {
+        val failures = mutableListOf<Throwable>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            fetcher { 1 }
+            events(object : AquiferEvents<String> {
+                override fun onRevalidationTriggerFailed(error: Throwable) {
+                    failures += error
+                }
+            })
+        }
+
+        store.revalidateOn(kotlinx.coroutines.flow.flow<Unit> { error("broken trigger") })
+        settle()
+
+        // Without containment the exception escapes the supervisor as an uncaught error
+        // (which runTest would surface as a test failure). The store keeps working:
+        assertEquals(1, store.get("k"))
+        assertEquals("broken trigger", failures.single().message)
+    }
+
+    @Test
     fun `multiple streams of one key trigger a single shared refresh`() = runTest {
         val clock = FakeClock()
         var calls = 0

@@ -41,4 +41,11 @@ public interface AquiferEvents<K : Any> {
      * is out of date.
      */
     public fun onPersistenceWriteFailed(key: K, error: Throwable) {}
+
+    /**
+     * A trigger flow passed to [Aquifer.revalidateOn] threw [error]. That trigger's
+     * subscription has ended (the store itself keeps working); without this hook the failure
+     * would be invisible. Re-attach a new trigger if revalidation should continue.
+     */
+    public fun onRevalidationTriggerFailed(error: Throwable) {}
 }

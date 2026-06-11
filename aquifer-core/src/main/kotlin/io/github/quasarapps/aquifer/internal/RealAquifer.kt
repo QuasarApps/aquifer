@@ -2,6 +2,7 @@ package io.github.quasarapps.aquifer.internal
 
 import io.github.quasarapps.aquifer.Aquifer
 import io.github.quasarapps.aquifer.AquiferEvents
+import io.github.quasarapps.aquifer.AquiferException
 import io.github.quasarapps.aquifer.CacheMissException
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Freshness
@@ -20,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -29,8 +31,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -58,6 +64,27 @@ internal class RealAquifer<K : Any, V : Any>(
 
     /** Reference counts of keys with active, fetch-capable stream collectors. */
     private val activeKeys = ConcurrentHashMap<K, Int>()
+
+    /**
+     * Write-epoch fencing: every mutation ([put], [invalidate], [invalidateAll]) advances the
+     * key's epoch under [commitGuard] and evicts the key's in-flight fetch from the registry.
+     * A completing fetch only commits its result (memory, broadcast, persistence) if the
+     * epoch it started under is still current — so a response that was already in flight when
+     * the data was invalidated or locally edited can never resurrect into the caches, and
+     * post-mutation refetches start genuinely new requests instead of joining the doomed one.
+     *
+     * All epoch bumps, memory mutations, fetch commits, and their persistence writes are
+     * serialized by [commitGuard]; cache *reads* never take it.
+     */
+    private val commitGuard = Mutex()
+    private val globalEpoch = AtomicLong()
+    private val keyEpochs = ConcurrentHashMap<K, Long>()
+
+    init {
+        // A store whose scope dies (parent cancellation or close()) must report itself
+        // closed: operations fail fast instead of hanging on a dead bus.
+        job.invokeOnCompletion { closed.set(true) }
+    }
 
     /**
      * Single broadcast bus for all keys; streams filter for their key.
@@ -89,15 +116,24 @@ internal class RealAquifer<K : Any, V : Any>(
     }
 
     private suspend fun FlowCollector<DataState<V>>.collectStates(key: K, freshness: Freshness) {
+        // Hydrate from persistence BEFORE subscribing to the bus: storage I/O must never run
+        // inside the subscription, where a subscriber that is not consuming yet would
+        // backpressure every emitter in the store. prime() re-reads memory once subscribed,
+        // so anything newer that lands in between is not lost.
+        val preloaded = if (freshness == Freshness.NetworkOnly) null else load(key)
         // Last value this collector has seen; backs the `value` field of Loading/Failure.
         var last: V? = null
+        // Newest write timestamp this collector has emitted. Bus events buffered before the
+        // snapshot was taken replay after it and must not regress us to an older value.
+        var newestWrittenAt = Long.MIN_VALUE
         events
-            .onSubscription { prime(key, freshness) }
+            .onSubscription { prime(key, freshness, preloaded) }
             .buffer(Channel.UNLIMITED)
             .flowOn(busDrainContext)
             .collect { event ->
                 when (event) {
-                    is Event.Updated -> if (event.key == key) {
+                    is Event.Updated -> if (event.key == key && event.writtenAtMillis >= newestWrittenAt) {
+                        newestWrittenAt = event.writtenAtMillis
                         last = event.value
                         emit(DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis)))
                     }
@@ -112,11 +148,13 @@ internal class RealAquifer<K : Any, V : Any>(
 
                     is Event.Invalidated -> if (event.key == key) {
                         last = null
+                        newestWrittenAt = Long.MIN_VALUE
                         if (freshness != Freshness.CacheOnly) refresh(key)
                     }
 
                     is Event.ClearedAll -> {
                         last = null
+                        newestWrittenAt = Long.MIN_VALUE
                         if (freshness != Freshness.CacheOnly) refresh(key)
                     }
                 }
@@ -144,7 +182,7 @@ internal class RealAquifer<K : Any, V : Any>(
 
             Freshness.NetworkFirst -> awaitFetch(key, fallback = entry?.value)
 
-            Freshness.NetworkOnly -> refresh(key).await()
+            Freshness.NetworkOnly -> awaitFetch(key, fallback = null)
         }
     }
 
@@ -153,26 +191,51 @@ internal class RealAquifer<K : Any, V : Any>(
     override suspend fun put(key: K, value: V) {
         checkOpen()
         val now = clock.nowMillis()
-        // Persist first so a storage failure propagates before anything becomes visible;
-        // direct mutations are all-or-nothing, unlike best-effort fetch write-through.
-        persistence?.write(key, PersistedEntry(value, now))
-        memory.put(key, MemoryCache.Entry(value, now))
+        commitGuard.withLock {
+            // Persist first so a storage failure propagates before anything becomes visible;
+            // direct mutations are all-or-nothing, unlike best-effort fetch write-through.
+            persistence?.write(key, PersistedEntry(value, now))
+            fence(key)
+            memory.put(key, MemoryCache.Entry(value, now))
+        }
         events.emit(Event.Updated(key, value, Origin.LOCAL, now))
     }
 
     override suspend fun invalidate(key: K) {
         checkOpen()
-        persistence?.delete(key)
-        memory.remove(key)
+        commitGuard.withLock {
+            persistence?.delete(key)
+            fence(key)
+            memory.remove(key)
+        }
         events.emit(Event.Invalidated(key))
     }
 
     override suspend fun invalidateAll() {
         checkOpen()
-        persistence?.deleteAll()
-        memory.clear()
+        commitGuard.withLock {
+            persistence?.deleteAll()
+            globalEpoch.incrementAndGet()
+            keyEpochs.clear()
+            inFlight.clear()
+            memory.clear()
+        }
         events.emit(Event.ClearedAll)
     }
+
+    /**
+     * Invalidates everything an in-flight fetch for [key] might commit: bumps the key's
+     * epoch and evicts the fetch from the registry so later refreshes start anew. The fetch
+     * itself keeps running — its awaiting callers still get a value — but its commit is
+     * discarded. Must run under [commitGuard].
+     */
+    private fun fence(key: K) {
+        keyEpochs[key] = (keyEpochs[key] ?: 0L) + 1L
+        inFlight.remove(key)
+    }
+
+    /** Epoch snapshot for [key]; commits compare snapshots taken when their fetch started. */
+    private fun epochOf(key: K): Pair<Long, Long> = globalEpoch.get() to (keyEpochs[key] ?: 0L)
 
     override suspend fun revalidateActive() {
         checkOpen()
@@ -185,7 +248,15 @@ internal class RealAquifer<K : Any, V : Any>(
     override fun revalidateOn(trigger: Flow<*>) {
         checkOpen()
         scope.launch {
-            trigger.collect { revalidateActive() }
+            try {
+                trigger.collect { revalidateActive() }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                // An uncaught exception here would escape the supervisor and crash the host
+                // process. The trigger's subscription ends; the store keeps working.
+                notify { onRevalidationTriggerFailed(failure) }
+            }
         }
     }
 
@@ -195,26 +266,49 @@ internal class RealAquifer<K : Any, V : Any>(
         }
     }
 
+    // CAS loops on ConcurrentMap primitives instead of merge/computeIfPresent: those default
+    // methods only exist on Android API 24+, and aquifer-core supports API 21.
     private fun registerActive(key: K) {
-        activeKeys.merge(key, 1, Int::plus)
+        while (true) {
+            val current = activeKeys[key]
+            when {
+                current == null -> if (activeKeys.putIfAbsent(key, 1) == null) return
+                else -> if (activeKeys.replace(key, current, current + 1)) return
+            }
+        }
     }
 
     private fun unregisterActive(key: K) {
-        activeKeys.computeIfPresent(key) { _, count -> if (count <= 1) null else count - 1 }
+        while (true) {
+            val current = activeKeys[key] ?: return
+            when {
+                current <= 1 -> if (activeKeys.remove(key, current)) return
+                else -> if (activeKeys.replace(key, current, current - 1)) return
+            }
+        }
     }
 
     /**
      * Emits the initial snapshot for a new stream collector and triggers a fetch when the
-     * requested freshness calls for one. Runs inside [onSubscription], i.e. after the
-     * collector is registered with the bus, so no update can slip between the snapshot read
-     * and live event delivery.
+     * requested freshness calls for one. Runs inside [onSubscription] — after the collector
+     * is registered with the bus, so no update can slip between the snapshot read and live
+     * event delivery. Must stay I/O-free: it executes while this subscriber is not yet
+     * consuming, so anything slow here backpressures every emitter in the store.
      */
-    private suspend fun FlowCollector<Event<K, V>>.prime(key: K, freshness: Freshness) {
-        // NetworkOnly bypasses cached reads entirely: no snapshot, no persistence I/O.
-        val snapshot = if (freshness == Freshness.NetworkOnly) null else load(key)
-        val entry = snapshot?.entry
-        if (snapshot != null) {
-            emit(Event.Updated(key, snapshot.entry.value, snapshot.origin, snapshot.entry.writtenAtMillis))
+    private suspend fun FlowCollector<Event<K, V>>.prime(key: K, freshness: Freshness, preloaded: Snapshot<V>?) {
+        // Memory only — the persistence read already happened before subscription (see
+        // collectStates); doing I/O here would stall the entire bus. NetworkOnly bypasses
+        // cached reads entirely.
+        val entry = if (freshness == Freshness.NetworkOnly) null else memory.get(key)
+        if (entry != null) {
+            // Same write as the pre-subscription hydration? Report where it really came
+            // from; anything newer was committed to memory after we hydrated.
+            val origin = if (preloaded != null && preloaded.entry.writtenAtMillis == entry.writtenAtMillis) {
+                preloaded.origin
+            } else {
+                Origin.MEMORY
+            }
+            emit(Event.Updated(key, entry.value, origin, entry.writtenAtMillis))
         }
         // A fetch that started before this collector subscribed broadcast its Fetching event
         // too early for us to see it. Note it now (before refresh, so a fetch we start
@@ -242,22 +336,37 @@ internal class RealAquifer<K : Any, V : Any>(
         inFlight[key]?.let { return it }
         val pending = scope.async(start = CoroutineStart.LAZY) {
             var attempts = 1
+            // Any mutation after this point outranks this fetch's result.
+            val epoch = epochOf(key)
             try {
                 events.emit(Event.Fetching(key))
                 notify { onFetchStarted(key) }
                 val startedAt = clock.nowMillis()
                 val value = fetchWithRetry(key) { attempts = it }
                 val now = clock.nowMillis()
-                memory.put(key, MemoryCache.Entry(value, now))
-                events.emit(Event.Updated(key, value, Origin.FETCHER, now))
                 notify { onFetchSucceeded(key, (now - startedAt).milliseconds) }
-                persistFetched(key, value, now)
+                val committed = commitGuard.withLock {
+                    val current = epochOf(key) == epoch
+                    if (current) {
+                        memory.put(key, MemoryCache.Entry(value, now))
+                        persistFetched(key, value, now)
+                    }
+                    current
+                }
+                // Re-check before broadcasting: a mutation may have raced the gap above, and
+                // observers should not see a fenced-off value even transiently.
+                if (committed && epochOf(key) == epoch) {
+                    events.emit(Event.Updated(key, value, Origin.FETCHER, now))
+                }
                 value
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
                 notify { onFetchFailed(key, failure, attempts) }
-                events.emit(Event.Failed(key, failure))
+                // A failure of a fenced-off fetch is stale news; observers already moved on.
+                if (epochOf(key) == epoch) {
+                    events.emit(Event.Failed(key, failure))
+                }
                 throw failure
             }
         }
@@ -345,7 +454,12 @@ internal class RealAquifer<K : Any, V : Any>(
         try {
             return refresh(key).await()
         } catch (cancellation: CancellationException) {
-            throw cancellation
+            // If the *caller* was cancelled, propagate that as normal cancellation. Otherwise
+            // it was the fetch that died — the store closed underneath us — and silently
+            // rethrowing the CancellationException would cancel an active caller without any
+            // visible error.
+            coroutineContext.ensureActive()
+            throw AquiferException("Aquifer was closed while fetching '$key'", cancellation)
         } catch (failure: Throwable) {
             return fallback ?: throw failure
         }

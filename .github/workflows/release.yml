@@ -31,7 +31,7 @@ jobs:
           case "$TAG_VERSION" in
             *-SNAPSHOT) echo "Refusing to release a -SNAPSHOT version ($TAG_VERSION)"; exit 1 ;;
           esac
-          for module in aquifer-core aquifer-persistence-file; do
+          for module in aquifer-core aquifer-persistence-file aquifer-android; do
             MODULE_VERSION=$(./gradlew -q ":$module:properties" | awk '/^version: /{print $2}')
             if [ "$MODULE_VERSION" != "$TAG_VERSION" ]; then
               echo "Tag v$TAG_VERSION does not match :$module version $MODULE_VERSION."

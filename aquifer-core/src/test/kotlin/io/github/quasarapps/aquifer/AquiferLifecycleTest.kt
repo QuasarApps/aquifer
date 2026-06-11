@@ -1,6 +1,5 @@
 package io.github.quasarapps.aquifer
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -11,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 
 class AquiferLifecycleTest {
 
@@ -42,7 +42,7 @@ class AquiferLifecycleTest {
     }
 
     @Test
-    fun `close cancels in-flight fetches`() = runTest {
+    fun `close fails in-flight gets with a real error, not a silent cancellation`() = runTest {
         val store = aquifer<String, String> {
             scope(backgroundScope)
             fetcher {
@@ -51,12 +51,13 @@ class AquiferLifecycleTest {
             }
         }
 
-        val pending = async { store.get("k") }
+        val pending = async { runCatching { store.get("k") } }
         settle() // The fetch is now in flight.
 
         store.close()
 
-        assertFailsWith<CancellationException> { pending.await() }
+        // The caller's coroutine was NOT cancelled — it received a visible error.
+        assertIs<AquiferException>(pending.await().exceptionOrNull())
     }
 
     @Test
@@ -82,7 +83,7 @@ class AquiferLifecycleTest {
     }
 
     @Test
-    fun `cancelling the parent scope stops the store's work`() = runTest {
+    fun `cancelling the parent scope stops the store's work and closes the store`() = runTest {
         val parent = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         var completions = 0
         val store = aquifer<String, String> {
@@ -94,13 +95,18 @@ class AquiferLifecycleTest {
             }
         }
 
-        val pending = async { store.get("k") }
+        val pending = async { runCatching { store.get("k") } }
         settle() // The fetch is now in flight.
 
         parent.cancel()
 
-        assertFailsWith<CancellationException> { pending.await() }
+        assertIs<AquiferException>(pending.await().exceptionOrNull())
         assertEquals(0, completions)
+
+        // The store reports itself closed: operations fail fast instead of hanging forever.
+        settle()
+        assertFailsWith<IllegalStateException> { store.get("another") }
+        assertFailsWith<IllegalStateException> { store.stream("another") }
     }
 
     @Test

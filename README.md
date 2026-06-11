@@ -67,8 +67,10 @@ Aquifer packages those patterns into one small, focused library:
 | **Deterministic tests** | Inject a `WallClock` and a `CoroutineScope`; staleness and concurrency are fully testable with virtual time. |
 
 Pure Kotlin/JVM with a single dependency (`kotlinx-coroutines`): usable from any Android app
-(no minSdk constraints beyond your coroutines version) and from JVM services — and designed so
-persistence and Android-specific integrations layer on top as separate modules.
+(API 21+; deliberately free of `java.util` methods added in API 24) and from JVM services —
+persistence and Android-specific integrations layer on top as separate modules. The optional
+`aquifer-persistence-file` module is built on `java.nio.file` and needs API 26+ or NIO
+core-library desugaring.
 
 ## Core concepts
 

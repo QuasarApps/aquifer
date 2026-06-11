@@ -70,19 +70,25 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * Writes [value] for [key] into the cache as a fresh entry and notifies active streams.
      *
      * Use this to apply local edits or server push payloads. The write is local only; pushing
-     * the change to your backend remains the caller's responsibility.
+     * the change to your backend remains the caller's responsibility. A fetch already in
+     * flight for [key] is fenced off: its response cannot overwrite this newer local value
+     * (callers awaiting that fetch still receive its result).
      */
     public suspend fun put(key: K, value: V)
 
     /**
-     * Drops the cached entry for [key] and notifies active streams, which re-fetch
-     * automatically (unless they were started with [Freshness.CacheOnly]).
+     * Drops the cached entry for [key], in memory and in persistence. Fetch-capable active
+     * streams re-fetch automatically with a *new* request; a fetch already in flight is
+     * fenced off so its response cannot resurrect the invalidated data. [Freshness.CacheOnly]
+     * observers are not notified — they keep their last rendered state until the key is
+     * written again.
      */
     public suspend fun invalidate(key: K)
 
     /**
-     * Drops all cached entries and notifies active streams, which re-fetch their keys
-     * automatically (unless started with [Freshness.CacheOnly]).
+     * Drops all cached entries, in memory and in persistence, with the same fencing and
+     * stream semantics as [invalidate]. This is the right call for logout-style resets:
+     * responses already in flight for the previous state cannot land back in the caches.
      */
     public suspend fun invalidateAll()
 
@@ -113,8 +119,10 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
 
     /**
      * Closes the store: cancels in-flight fetches and stops update delivery. Streams stop
-     * receiving emissions, and subsequent calls to other members throw [IllegalStateException].
-     * Closing an already-closed store is a no-op.
+     * receiving emissions, subsequent calls to other members throw [IllegalStateException],
+     * and callers already awaiting a fetch get an [AquiferException] (never a bare
+     * cancellation of their own coroutine). Cancelling the scope passed to
+     * [AquiferBuilder.scope] has the same effect. Closing an already-closed store is a no-op.
      */
     override fun close()
 }
