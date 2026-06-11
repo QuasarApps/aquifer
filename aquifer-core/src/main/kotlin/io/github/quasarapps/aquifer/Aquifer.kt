@@ -87,6 +87,31 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     public suspend fun invalidateAll()
 
     /**
+     * Triggers a refresh for every key that currently has an active [stream] collector and
+     * whose entry is stale or missing. Fresh entries and keys observed only by
+     * [Freshness.CacheOnly] streams are skipped, and concurrent refreshes share fetches as
+     * usual. Returns once the refreshes are *triggered*; results arrive through the streams.
+     *
+     * This is the building block for "refresh when the app comes back online / to the
+     * foreground" behaviour — see [revalidateOn].
+     */
+    public suspend fun revalidateActive()
+
+    /**
+     * Calls [revalidateActive] every time [trigger] emits, for the lifetime of this store.
+     * Typical Android wiring passes a connectivity-restored or app-foregrounded event flow:
+     *
+     * ```
+     * users.revalidateOn(connectivity.onlineAgain)   // Flow<Unit> from ConnectivityManager
+     * ```
+     *
+     * May be called multiple times with different triggers. Collection runs in the store's
+     * scope and stops when the store is closed (or the trigger flow completes); a trigger
+     * that throws stops only its own subscription.
+     */
+    public fun revalidateOn(trigger: Flow<*>)
+
+    /**
      * Closes the store: cancels in-flight fetches and stops update delivery. Streams stop
      * receiving emissions, and subsequent calls to other members throw [IllegalStateException].
      * Closing an already-closed store is a no-op.
