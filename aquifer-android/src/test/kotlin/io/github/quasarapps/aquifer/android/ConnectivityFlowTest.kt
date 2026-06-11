@@ -2,6 +2,8 @@ package io.github.quasarapps.aquifer.android
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import app.cash.turbine.test
 import androidx.test.core.app.ApplicationProvider
 import io.github.quasarapps.aquifer.DataState
@@ -15,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowNetwork
+import org.robolectric.shadows.ShadowNetworkCapabilities
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -27,13 +30,29 @@ class ConnectivityFlowTest {
     private val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val shadow = shadowOf(manager)
 
+    /** Gives an existing shadow network internet capability, so the snapshot reads "online". */
+    private fun seedOnline(): Network {
+        val network = manager.allNetworks.first()
+        val capabilities = ShadowNetworkCapabilities.newInstance()
+        shadowOf(capabilities).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        shadow.setNetworkCapabilities(network, capabilities)
+        return network
+    }
+
+    /** Removes every shadow network, so the snapshot reads "offline". */
+    private fun seedOffline() {
+        manager.allNetworks.forEach { shadow.removeNetwork(it) }
+    }
+
     @Test
     fun `restoring connectivity after loss emits`() = runTest {
+        val network = seedOnline()
+
         context.connectivityRestoredFlow().test {
             runCurrent() // the callback is now registered
             val callback = shadow.networkCallbacks.single()
-            val network = ShadowNetwork.newInstance(1)
 
+            callback.onAvailable(network) // the system reports existing networks first
             callback.onLost(network)
             callback.onAvailable(network)
 
@@ -43,12 +62,33 @@ class ConnectivityFlowTest {
 
     @Test
     fun `connectivity that is already present does not emit`() = runTest {
+        val network = seedOnline()
+
         context.connectivityRestoredFlow().test {
             runCurrent()
             val callback = shadow.networkCallbacks.single()
 
-            // The system reports existing networks right after registration.
+            callback.onAvailable(network)
+            runCurrent()
+            expectNoEvents()
+        }
+    }
+
+    @Test
+    fun `starting offline then regaining connectivity emits`() = runTest {
+        seedOffline()
+
+        context.connectivityRestoredFlow().test {
+            runCurrent()
+            val callback = shadow.networkCallbacks.single()
+
+            // No initial callbacks arrive on an offline device; the first availability is
+            // a genuine offline-to-online transition.
             callback.onAvailable(ShadowNetwork.newInstance(1))
+            assertEquals(Unit, awaitItem())
+
+            // Exactly once: a second network while online is not a restoration.
+            callback.onAvailable(ShadowNetwork.newInstance(2))
             runCurrent()
             expectNoEvents()
         }
@@ -56,6 +96,8 @@ class ConnectivityFlowTest {
 
     @Test
     fun `switching networks without losing connectivity does not emit`() = runTest {
+        seedOnline()
+
         context.connectivityRestoredFlow().test {
             runCurrent()
             val callback = shadow.networkCallbacks.single()
@@ -76,11 +118,13 @@ class ConnectivityFlowTest {
 
     @Test
     fun `each restoration emits exactly once`() = runTest {
+        val network = seedOnline()
+
         context.connectivityRestoredFlow().test {
             runCurrent()
             val callback = shadow.networkCallbacks.single()
-            val network = ShadowNetwork.newInstance(1)
 
+            callback.onAvailable(network)
             callback.onLost(network)
             callback.onAvailable(network)
             assertEquals(Unit, awaitItem())
@@ -105,6 +149,7 @@ class ConnectivityFlowTest {
 
     @Test
     fun `revalidateOnReconnect refreshes a stale active stream`() = runTest {
+        val network = seedOnline()
         var now = 0L
         var calls = 0
         val store = aquifer<String, Int> {
@@ -116,7 +161,6 @@ class ConnectivityFlowTest {
         store.revalidateOnReconnect(context)
         runCurrent() // the trigger flow is now collecting; the callback is registered
         val callback = shadow.networkCallbacks.single()
-        val network = ShadowNetwork.newInstance(1)
         store.put("k", 100)
 
         store.stream("k").test {

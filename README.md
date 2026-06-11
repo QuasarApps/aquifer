@@ -171,9 +171,10 @@ users.revalidateOnReconnect(context)   // internet restored (ConnectivityManager
 users.revalidateOnAppForeground()      // app returned to foreground (ProcessLifecycleOwner)
 ```
 
-Both fire only on genuine offline→online / background→foreground transitions (never on app
-launch or for Wi-Fi↔cellular handovers), and the required `ACCESS_NETWORK_STATE` permission
-is merged in from the library manifest. For anything custom, `revalidateOn(trigger)` accepts
+Both fire only on genuine offline→online / background→foreground transitions: an
+already-online device or already-visible app at subscription never emits, subscribing while
+offline or backgrounded emits on the next recovery, and Wi-Fi↔cellular handovers are ignored.
+The required `ACCESS_NETWORK_STATE` permission is merged in from the library manifest. For anything custom, `revalidateOn(trigger)` accepts
 any `Flow` — a push message, a settings change, a timer.
 
 ### Observability

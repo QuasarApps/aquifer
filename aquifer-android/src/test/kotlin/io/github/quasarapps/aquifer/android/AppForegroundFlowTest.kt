@@ -34,6 +34,20 @@ class AppForegroundFlowTest {
     }
 
     @Test
+    fun `subscribing while backgrounded emits on the next start`() = runTest {
+        val owner = owner(initialState = Lifecycle.State.CREATED)
+
+        appForegroundedFlow(owner.lifecycle).test {
+            runCurrent()
+            expectNoEvents()
+
+            owner.handleLifecycleEvent(Lifecycle.Event.ON_START)
+
+            assertEquals(Unit, awaitItem())
+        }
+    }
+
+    @Test
     fun `returning to the foreground emits`() = runTest {
         val owner = owner()
 

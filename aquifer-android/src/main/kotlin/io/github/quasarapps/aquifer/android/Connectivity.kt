@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.callbackFlow
  *
  * Connectivity that is already present when collection starts does not emit, and switching
  * between networks (Wi-Fi ↔ cellular) without fully losing connectivity does not emit either:
- * the flow fires only for offline → online transitions observed while collecting.
+ * the flow fires only for offline → online transitions. A device that is *offline* when
+ * collection starts emits as soon as connectivity first appears.
  *
  * The underlying [ConnectivityManager.NetworkCallback] is registered while the flow is
  * collected and unregistered when collection stops. Callbacks may arrive on a system thread;
@@ -33,7 +34,12 @@ public fun Context.connectivityRestoredFlow(): Flow<Unit> = callbackFlow {
 
     val callback = object : ConnectivityManager.NetworkCallback() {
         private val available = mutableSetOf<Network>()
-        private var offlineObserved = false
+
+        // A device that is offline when collection starts receives no initial callbacks at
+        // all, so the "we have been offline" flag must be seeded from a snapshot. Only the
+        // flag is seeded: snapshot networks never produce a matching onLost for this
+        // callback, so seeding `available` could park phantom entries there forever.
+        private var offlineObserved = !manager.isCurrentlyOnline()
 
         override fun onAvailable(network: Network) {
             val restored = synchronized(this) {
@@ -54,6 +60,13 @@ public fun Context.connectivityRestoredFlow(): Flow<Unit> = callbackFlow {
     manager.registerNetworkCallback(request, callback)
     awaitClose { manager.unregisterNetworkCallback(callback) }
 }
+
+/** Snapshot of whether any network currently offers internet capability. */
+@Suppress("DEPRECATION") // allNetworks: required for the minSdk 21 snapshot; callbacks take over after registration.
+private fun ConnectivityManager.isCurrentlyOnline(): Boolean =
+    allNetworks.any { network ->
+        getNetworkCapabilities(network)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }
 
 /**
  * Refreshes this store's stale, actively observed keys whenever internet connectivity is
