@@ -1,0 +1,12 @@
+public final class io/github/quasarapps/aquifer/android/AppForegroundKt {
+	public static final fun appForegroundedFlow (Landroidx/lifecycle/Lifecycle;)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun appForegroundedFlow$default (Landroidx/lifecycle/Lifecycle;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+	public static final fun revalidateOnAppForeground (Lio/github/quasarapps/aquifer/Aquifer;Landroidx/lifecycle/Lifecycle;)V
+	public static synthetic fun revalidateOnAppForeground$default (Lio/github/quasarapps/aquifer/Aquifer;Landroidx/lifecycle/Lifecycle;ILjava/lang/Object;)V
+}
+
+public final class io/github/quasarapps/aquifer/android/ConnectivityKt {
+	public static final fun connectivityRestoredFlow (Landroid/content/Context;)Lkotlinx/coroutines/flow/Flow;
+	public static final fun revalidateOnReconnect (Lio/github/quasarapps/aquifer/Aquifer;Landroid/content/Context;)V
+}
+

@@ -10,7 +10,9 @@ Thanks for your interest in Aquifer!
 ./gradlew dokkaGenerate  # aggregated API docs in build/dokka/
 ```
 
-Requirements: JDK 17+ (CI uses 21). The Gradle wrapper handles everything else.
+Requirements: JDK 17+ (CI uses 21) and an Android SDK for `:aquifer-android` (point
+`local.properties`' `sdk.dir` or `ANDROID_HOME` at it; compileSdk 35). The Gradle wrapper
+handles everything else.
 
 ## Project conventions
 

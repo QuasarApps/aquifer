@@ -31,6 +31,14 @@ versions may contain breaking changes.
 - `AquiferEvents` observability hooks: fetch started/succeeded/retried/failed and persistence
   write failures.
 
+**`aquifer-android`**
+
+- `Context.connectivityRestoredFlow()` and `Aquifer.revalidateOnReconnect(context)`:
+  ConnectivityManager-backed offline→online trigger that ignores already-present connectivity
+  and Wi-Fi↔cellular handovers; `ACCESS_NETWORK_STATE` is declared in the library manifest.
+- `appForegroundedFlow()` and `Aquifer.revalidateOnAppForeground()`: ProcessLifecycleOwner-
+  backed background→foreground trigger that ignores the app launch itself.
+
 **`aquifer-persistence-file`**
 
 - `JsonFileSourceOfTruth`: one JSON file per key via kotlinx.serialization, SHA-256 file

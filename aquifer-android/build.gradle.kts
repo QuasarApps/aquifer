@@ -1,0 +1,77 @@
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.dokka)
+    alias(libs.plugins.maven.publish)
+}
+
+group = "io.github.quasar-apps"
+version = "0.1.0-SNAPSHOT"
+
+android {
+    namespace = "io.github.quasarapps.aquifer.android"
+    compileSdk = 35
+
+    defaultConfig {
+        minSdk = 21
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+
+kotlin {
+    explicitApi()
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
+dependencies {
+    api(project(":aquifer-core"))
+    implementation(libs.androidx.lifecycle.process)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.lifecycle.runtime.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    signAllPublications()
+    coordinates("io.github.quasar-apps", "aquifer-android", version.toString())
+    configure(AndroidSingleVariantLibrary("release", sourcesJar = true, publishJavadocJar = true))
+
+    pom {
+        name.set("Aquifer Android")
+        description.set("Android integrations for Aquifer: connectivity- and lifecycle-driven revalidation triggers.")
+        url.set("https://github.com/Quasar-Apps/api-library-example")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("quasar-apps")
+                name.set("Quasar Apps")
+                url.set("https://github.com/Quasar-Apps")
+            }
+        }
+        scm {
+            url.set("https://github.com/Quasar-Apps/api-library-example")
+            connection.set("scm:git:git://github.com/Quasar-Apps/api-library-example.git")
+            developerConnection.set("scm:git:ssh://git@github.com/Quasar-Apps/api-library-example.git")
+        }
+    }
+}

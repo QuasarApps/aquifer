@@ -40,7 +40,8 @@ if (state is DataState.Failure) RefreshFailedSnackbar()
 > ```kotlin
 > dependencies {
 >     implementation("io.github.quasar-apps:aquifer-core:0.1.0")
->     implementation("io.github.quasar-apps:aquifer-persistence-file:0.1.0") // optional
+>     implementation("io.github.quasar-apps:aquifer-android:0.1.0")          // reconnect/foreground triggers
+>     implementation("io.github.quasar-apps:aquifer-persistence-file:0.1.0") // disk persistence
 > }
 > ```
 
@@ -162,20 +163,19 @@ terminal state per cycle, and jitter only ever shortens delays so `maxDelay` is 
 ### Refresh on reconnect (or foreground)
 
 `revalidateActive()` refreshes exactly the keys someone is currently looking at — active
-streams — and only if their entries are stale or missing. Wire it to any trigger `Flow`:
+streams — and only if their entries are stale or missing. `aquifer-android` ships the two
+triggers every app wants:
 
 ```kotlin
-// Flow<Unit> built over ConnectivityManager.NetworkCallback (or ProcessLifecycleOwner):
-val onlineAgain: Flow<Unit> = callbackFlow {
-    val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { trySend(Unit) }
-    }
-    connectivityManager.registerDefaultNetworkCallback(callback)
-    awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
-}
-
-users.revalidateOn(onlineAgain)
+users.revalidateOnReconnect(context)   // internet restored (ConnectivityManager-backed)
+users.revalidateOnAppForeground()      // app returned to foreground (ProcessLifecycleOwner)
 ```
+
+Both fire only on genuine offline→online / background→foreground transitions: an
+already-online device or already-visible app at subscription never emits, subscribing while
+offline or backgrounded emits on the next recovery, and Wi-Fi↔cellular handovers are ignored.
+The required `ACCESS_NETWORK_STATE` permission is merged in from the library manifest. For anything custom, `revalidateOn(trigger)` accepts
+any `Flow` — a push message, a settings change, a timer.
 
 ### Observability
 
@@ -250,14 +250,16 @@ fun `stale profile is served then revalidated`() = runTest {
 - [x] Revalidate-on-reconnect (`revalidateOn`) + observability hooks (`AquiferEvents`)
 - [x] Dokka API docs, binary-compatibility validation, Maven Central publishing pipeline
 - [x] Runnable sample + Android integration recipes
+- [x] `aquifer-android` companion: reconnect + app-foreground revalidation triggers
 - [ ] Tag and publish `v0.1.0`
-- [ ] `aquifer-android` companion (ConnectivityManager trigger, Compose helpers)
+- [ ] Compose convenience helpers
 
 ## Project layout
 
 | Module | Description |
 |---|---|
 | `aquifer-core` | The store: public API + engine. Pure Kotlin/JVM, depends only on `kotlinx-coroutines-core`. |
+| `aquifer-android` | Android library: `revalidateOnReconnect` / `revalidateOnAppForeground` triggers (Robolectric-tested). |
 | `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
 | `sample` | Runnable CLI walkthrough of every feature (`./gradlew :sample:run`). |
 
