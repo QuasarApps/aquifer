@@ -32,6 +32,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     private val freshness = FreshnessConfig()
     private var clock: WallClock = WallClock.SYSTEM
     private var scope: CoroutineScope? = null
+    private var persistence: SourceOfTruth<K, V>? = null
 
     /**
      * The authoritative source of values, typically a network call. Required.
@@ -53,6 +54,17 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     /** Configures freshness behaviour; see [FreshnessConfig]. */
     public fun freshness(configure: FreshnessConfig.() -> Unit) {
         freshness.configure()
+    }
+
+    /**
+     * Adds persistent storage behind the memory cache; see [SourceOfTruth] for the contract.
+     *
+     * With persistence configured, memory misses (including entries evicted by the LRU cache
+     * and cold starts after process death) are served from storage without fetching, and
+     * successful fetches and [Aquifer.put]s are written through to storage.
+     */
+    public fun persistence(sourceOfTruth: SourceOfTruth<K, V>) {
+        persistence = sourceOfTruth
     }
 
     /** Replaces the [WallClock] used for cache timestamps. Defaults to [WallClock.SYSTEM]. */
@@ -81,6 +93,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             maxEntries = memoryCache.maxEntries,
             clock = clock,
             parentScope = scope,
+            persistence = persistence,
         )
     }
 }

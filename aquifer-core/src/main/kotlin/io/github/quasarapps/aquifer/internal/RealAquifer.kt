@@ -5,6 +5,8 @@ import io.github.quasarapps.aquifer.CacheMissException
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Freshness
 import io.github.quasarapps.aquifer.Origin
+import io.github.quasarapps.aquifer.PersistedEntry
+import io.github.quasarapps.aquifer.SourceOfTruth
 import io.github.quasarapps.aquifer.WallClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
@@ -34,6 +36,7 @@ internal class RealAquifer<K : Any, V : Any>(
     maxEntries: Int,
     private val clock: WallClock,
     parentScope: CoroutineScope?,
+    private val persistence: SourceOfTruth<K, V>? = null,
 ) : Aquifer<K, V> {
 
     private val job = SupervisorJob(parentScope?.coroutineContext?.get(Job))
@@ -101,7 +104,7 @@ internal class RealAquifer<K : Any, V : Any>(
 
     override suspend fun get(key: K, freshness: Freshness): V {
         checkOpen()
-        val entry = memory.get(key)
+        val entry = load(key)?.entry
         val usable = entry != null && !isExpired(entry.writtenAtMillis)
         return when (freshness) {
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
@@ -128,18 +131,23 @@ internal class RealAquifer<K : Any, V : Any>(
     override suspend fun put(key: K, value: V) {
         checkOpen()
         val now = clock.nowMillis()
+        // Persist first so a storage failure propagates before anything becomes visible;
+        // direct mutations are all-or-nothing, unlike best-effort fetch write-through.
+        persistence?.write(key, PersistedEntry(value, now))
         memory.put(key, MemoryCache.Entry(value, now))
         events.emit(Event.Updated(key, value, Origin.LOCAL, now))
     }
 
     override suspend fun invalidate(key: K) {
         checkOpen()
+        persistence?.delete(key)
         memory.remove(key)
         events.emit(Event.Invalidated(key))
     }
 
     override suspend fun invalidateAll() {
         checkOpen()
+        persistence?.deleteAll()
         memory.clear()
         events.emit(Event.ClearedAll)
     }
@@ -157,9 +165,10 @@ internal class RealAquifer<K : Any, V : Any>(
      * and live event delivery.
      */
     private suspend fun FlowCollector<Event<K, V>>.prime(key: K, freshness: Freshness) {
-        val entry = memory.get(key)
-        if (entry != null && freshness != Freshness.NetworkOnly) {
-            emit(Event.Updated(key, entry.value, Origin.MEMORY, entry.writtenAtMillis))
+        val snapshot = load(key)
+        val entry = snapshot?.entry
+        if (snapshot != null && freshness != Freshness.NetworkOnly) {
+            emit(Event.Updated(key, snapshot.entry.value, snapshot.origin, snapshot.entry.writtenAtMillis))
         }
         // A fetch that started before this collector subscribed broadcast its Fetching event
         // too early for us to see it. Note it now (before refresh, so a fetch we start
@@ -192,6 +201,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 val now = clock.nowMillis()
                 memory.put(key, MemoryCache.Entry(value, now))
                 events.emit(Event.Updated(key, value, Origin.FETCHER, now))
+                persistFetched(key, value, now)
                 value
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -210,6 +220,41 @@ internal class RealAquifer<K : Any, V : Any>(
         pending.start()
         return pending
     }
+
+    /**
+     * Loads the freshest locally available entry: memory first, then the source of truth.
+     * A persistence hit hydrates the memory cache — preserving the original write timestamp,
+     * so staleness decisions remain correct across process restarts and LRU evictions.
+     */
+    private suspend fun load(key: K): Snapshot<V>? {
+        memory.get(key)?.let { return Snapshot(it, Origin.MEMORY) }
+        val store = persistence ?: return null
+        val persisted = store.read(key) ?: return null
+        val entry = MemoryCache.Entry(persisted.value, persisted.writtenAtMillis)
+        memory.put(key, entry)
+        return Snapshot(entry, Origin.PERSISTENCE)
+    }
+
+    /**
+     * Best-effort write-through after a successful fetch: a storage failure must not turn a
+     * successful fetch into an error (the value is already cached and broadcast), so anything
+     * but cancellation is swallowed. Direct mutations ([put], [invalidate]) propagate instead.
+     */
+    private suspend fun persistFetched(key: K, value: V, writtenAtMillis: Long) {
+        val store = persistence ?: return
+        try {
+            store.write(key, PersistedEntry(value, writtenAtMillis))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            // Swallowed by design; observability hooks for storage failures are on the roadmap.
+        }
+    }
+
+    private data class Snapshot<V : Any>(
+        val entry: MemoryCache.Entry<V>,
+        val origin: Origin,
+    )
 
     /** Awaits the shared fetch, falling back to [fallback] when the fetch fails (stale-if-error). */
     private suspend fun awaitFetch(key: K, fallback: V?): V {

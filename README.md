@@ -115,6 +115,27 @@ val current = users.get(id, Freshness.NetworkFirst) // prefer network, tolerate 
 val pinned = users.get(id, Freshness.CacheOnly)     // cache or CacheMissException, never fetches
 ```
 
+### Surviving process death
+
+Add a `SourceOfTruth` and cached data outlives the process: cold starts render from disk
+instantly, and LRU-evicted entries fall back to storage instead of the network. Timestamps are
+persisted too, so time-to-live decisions stay correct across restarts.
+
+```kotlin
+val articles = aquifer<ArticleId, Article> {
+    fetcher { id -> api.fetchArticle(id) }
+    freshness { timeToLive = 10.minutes }
+    persistence(
+        jsonFileSourceOfTruth(context.filesDir.resolve("aquifer/articles").toPath()),
+    )
+}
+```
+
+`aquifer-persistence-file` stores one JSON file per key (kotlinx.serialization) with atomic
+writes, SHA-256 file naming for arbitrary keys, and self-healing reads that treat corrupt
+files as absent. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight,
+or DataStore — it's four suspend functions.
+
 ## Testing your repositories
 
 Aquifer takes time and concurrency as injectable dependencies, so tests are deterministic:
@@ -161,7 +182,7 @@ fun `stale profile is served then revalidated`() = runTest {
 ## Roadmap
 
 - [x] Core: freshness policies, LRU memory cache, deduplication, reactive streams
-- [ ] `SourceOfTruth` persistence layer + disk-backed module (survive process death)
+- [x] `SourceOfTruth` persistence layer + disk-backed module (survive process death)
 - [ ] Retry policies with exponential backoff and jitter
 - [ ] Revalidate-on-reconnect / observability hooks
 - [ ] Dokka API docs, binary-compatibility validation, Maven Central publishing
@@ -172,6 +193,7 @@ fun `stale profile is served then revalidated`() = runTest {
 | Module | Description |
 |---|---|
 | `aquifer-core` | The store: public API + engine. Pure Kotlin/JVM, depends only on `kotlinx-coroutines-core`. |
+| `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
 
 ## License
 

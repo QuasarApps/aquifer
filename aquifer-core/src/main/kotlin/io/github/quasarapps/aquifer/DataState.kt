@@ -69,6 +69,9 @@ public enum class Origin {
     /** Served from the in-memory cache. */
     MEMORY,
 
+    /** Read from the configured [SourceOfTruth] (typically disk). */
+    PERSISTENCE,
+
     /** Returned by the fetcher (typically the network). */
     FETCHER,
 
