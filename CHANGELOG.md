@@ -11,7 +11,9 @@ versions may contain breaking changes.
 
 - **Persistence hydration is now epoch-fenced like fetch commits**: a `SourceOfTruth.read`
   suspended across `invalidate`/`invalidateAll` can no longer put the deleted entry back
-  into the memory cache. The hot memory path still never takes the commit lock.
+  into the memory cache, and memory is re-checked under the commit lock so a fetch commit
+  that races the storage read is never overwritten by the older disk snapshot. The hot
+  memory path still never takes the commit lock.
 - **Stream ordering is clock-independent**: events carry a store-global commit sequence
   (assigned under the commit guard) instead of relying on `writtenAtMillis`, so same-
   millisecond ties and backwards wall-clock steps can neither reorder nor silence updates.

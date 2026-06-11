@@ -422,24 +422,32 @@ internal class RealAquifer<K : Any, V : Any>(
      * so staleness decisions remain correct across process restarts and LRU evictions.
      *
      * Hydration is epoch-fenced exactly like fetch commits: a storage read suspended across
-     * an [invalidate]/[invalidateAll] must not put the deleted entry back into memory. The
-     * fenced case reports a miss. The hot memory path never takes [commitGuard].
+     * an [invalidate]/[invalidateAll] must not put the deleted entry back into memory; the
+     * fenced case reports a miss. Memory is also re-checked under the lock — a commit that
+     * raced the storage read (a fetch that just returned, or a put, which also moves the
+     * epoch) is fresher than the disk snapshot by construction and must never be overwritten
+     * by it. The hot memory path never takes [commitGuard].
      */
     private suspend fun load(key: K): Snapshot<V>? {
         memory.get(key)?.let { return Snapshot(it, Origin.MEMORY) }
         val store = persistence ?: return null
         val epoch = epochOf(key)
         val persisted = store.read(key) ?: return null
-        val hydrated = commitGuard.withLock {
-            if (epochOf(key) == epoch) {
-                val entry = MemoryCache.Entry(persisted.value, persisted.writtenAtMillis, sequencer.incrementAndGet())
-                memory.put(key, entry)
-                entry
-            } else {
-                null
+        return commitGuard.withLock {
+            val existing = memory.get(key)
+            when {
+                existing != null -> Snapshot(existing, Origin.MEMORY)
+
+                epochOf(key) == epoch -> {
+                    val entry =
+                        MemoryCache.Entry(persisted.value, persisted.writtenAtMillis, sequencer.incrementAndGet())
+                    memory.put(key, entry)
+                    Snapshot(entry, Origin.PERSISTENCE)
+                }
+
+                else -> null
             }
         }
-        return hydrated?.let { Snapshot(it, Origin.PERSISTENCE) }
     }
 
     /**

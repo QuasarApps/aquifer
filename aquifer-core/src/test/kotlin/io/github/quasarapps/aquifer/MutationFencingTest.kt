@@ -176,6 +176,30 @@ class MutationFencingTest {
     }
 
     @Test
+    fun `a fetch commit during a suspended persistence read is not clobbered by the older snapshot`() = runTest {
+        val disk = GatedDisk() // holds "old-user-data" for "k"
+        val store = aquifer<String, String> {
+            scope(backgroundScope)
+            fetcher { "network-new" }
+            persistence(disk)
+        }
+
+        // Hydration captures the old disk entry, then suspends…
+        val reader = async { runCatching { store.get("k", Freshness.CacheOnly) } }
+        settle()
+
+        // …a fetch lands the fresher value while the read is still suspended…
+        assertEquals("network-new", store.fresh("k"))
+
+        disk.gate.complete(Unit) // …and the resumed hydration must not overwrite it.
+        settle()
+
+        assertEquals("network-new", store.get("k", Freshness.CacheOnly))
+        // The suspended reader also receives the fresher value, not its stale snapshot.
+        assertEquals("network-new", reader.await().getOrNull())
+    }
+
+    @Test
     fun `a fetch started after the mutation commits normally`() = runTest {
         val store = aquifer<String, Int> {
             scope(backgroundScope)
