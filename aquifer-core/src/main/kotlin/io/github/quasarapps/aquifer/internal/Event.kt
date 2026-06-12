@@ -25,9 +25,22 @@ internal sealed interface Event<out K : Any, out V : Any> {
     /** The in-flight fetch for [key] failed with [error]. */
     data class Failed<K : Any>(val key: K, val error: Throwable) : Event<K, Nothing>
 
-    /** The cached entry for [key] was dropped. */
-    data class Invalidated<K : Any>(val key: K) : Event<K, Nothing>
+    /**
+     * The store has no value for [key] and the subscriber's strategy will not fetch one.
+     * Emitted only during stream priming, to cache-only subscribers of a missing key;
+     * surfaces as `DataState.Empty`.
+     */
+    data class Absent<K : Any>(val key: K) : Event<K, Nothing>
 
-    /** All cached entries were dropped. */
-    data object ClearedAll : Event<Nothing, Nothing>
+    /**
+     * The cached entry for [key] was dropped.
+     *
+     * @property sequence commit order of the drop, from the store's sequencer. Drops share
+     *   [Updated]'s total order so a collector can reject one that lost the emit race to a
+     *   newer write — applying it blindly would resurrect or erase out of order.
+     */
+    data class Invalidated<K : Any>(val key: K, val sequence: Long) : Event<K, Nothing>
+
+    /** All cached entries were dropped. [sequence] as in [Invalidated]. */
+    data class ClearedAll(val sequence: Long) : Event<Nothing, Nothing>
 }

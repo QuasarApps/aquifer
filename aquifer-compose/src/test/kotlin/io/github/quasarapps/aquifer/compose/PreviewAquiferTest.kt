@@ -8,19 +8,19 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
 
 class PreviewAquiferTest {
 
     @Test
-    fun `seeded keys stream content and missing keys stream a cache miss`() = runTest {
+    fun `seeded keys stream content and missing keys stream empty`() = runTest {
         val store = previewAquifer("u1" to "Ada")
 
         store.stream("u1").test {
             assertEquals(DataState.Content("Ada", Origin.MEMORY, isStale = false), awaitItem())
         }
         store.stream("nope").test {
-            assertIs<CacheMissException>(assertIs<DataState.Failure<String>>(awaitItem()).error)
+            // Previews never fetch, so a missing key is an affirmative empty state.
+            assertEquals(DataState.Empty, awaitItem())
         }
     }
 
@@ -35,7 +35,7 @@ class PreviewAquiferTest {
             assertEquals(DataState.Content("Edited", Origin.MEMORY, isStale = false), awaitItem())
 
             store.invalidate("u1")
-            assertIs<DataState.Failure<String>>(awaitItem())
+            assertEquals(DataState.Empty, awaitItem())
         }
     }
 

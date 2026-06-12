@@ -37,9 +37,11 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * Observes the data for [key] as a cold [Flow] of [DataState]s.
      *
      * On collection the stream first emits the cached value when one exists (except with
-     * [Freshness.NetworkOnly]) and triggers a fetch when the strategy calls for one. It then
-     * stays active indefinitely, re-emitting whenever the key is fetched, written, or
-     * invalidated by any caller — collect it in a scope that matches your UI lifecycle.
+     * [Freshness.NetworkOnly]) and triggers a fetch when the strategy calls for one; a
+     * [Freshness.CacheOnly] collection of a missing key emits [DataState.Empty] instead of
+     * fetching. The stream then stays active indefinitely, re-emitting whenever the key is
+     * fetched, written, or invalidated by any caller — collect it in a scope that matches
+     * your UI lifecycle.
      *
      * Multiple concurrent collectors are cheap: they share fetches and all observe the same
      * updates. Consecutive equal states are de-duplicated.
@@ -105,8 +107,8 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * Drops the cached entry for [key], in memory and in persistence. Fetch-capable active
      * streams re-fetch automatically with a *new* request; a fetch already in flight is
      * fenced off so its response cannot resurrect the invalidated data. [Freshness.CacheOnly]
-     * observers are not notified — they keep their last rendered state until the key is
-     * written again.
+     * observers see the deletion as [DataState.Empty] — they cannot fetch, so the empty
+     * state is how a cache-only screen learns the data is gone.
      */
     public suspend fun invalidate(key: K)
 

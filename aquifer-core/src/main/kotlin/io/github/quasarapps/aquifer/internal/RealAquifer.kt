@@ -85,9 +85,10 @@ internal class RealAquifer<K : Any, V : Any>(
     private val keyEpochs = ConcurrentHashMap<K, Long>()
 
     /**
-     * Stamps every cache commit with a store-global order, assigned under [commitGuard].
-     * Stream collectors use it to drop replayed-out-of-order events; unlike wall-clock
-     * timestamps it is immune to same-millisecond ties and backwards clock steps.
+     * Stamps every cache commit — and every drop ([invalidate]/[invalidateAll]) — with a
+     * store-global order, assigned under [commitGuard]. Stream collectors use it to reject
+     * replayed- or delivered-out-of-order events; unlike wall-clock timestamps it is immune
+     * to same-millisecond ties and backwards clock steps.
      */
     private val sequencer = AtomicLong()
 
@@ -136,45 +137,83 @@ internal class RealAquifer<K : Any, V : Any>(
         // backpressure every emitter in the store. prime() re-reads memory once subscribed,
         // so anything newer that lands in between is not lost.
         val preloaded = if (freshness == Freshness.NetworkOnly) null else load(key)
-        // Last value this collector has seen; backs the `value` field of Loading/Failure.
-        var last: V? = null
-        // Newest commit sequence this collector has emitted. Bus events buffered before the
-        // snapshot was taken replay after it and must not regress us to an earlier commit;
-        // the sequence is immune to clock ties and backwards wall-clock steps.
-        var newestSequence = Long.MIN_VALUE
+        val tracker = StreamTracker(key, freshness, maxAge, downstream = this)
         events
             .onSubscription { prime(key, freshness, maxAge, preloaded, preloadEpoch) }
             .buffer(Channel.UNLIMITED)
             .flowOn(busDrainContext)
-            .collect { event ->
-                when (event) {
-                    is Event.Updated -> if (event.key == key && event.sequence >= newestSequence) {
-                        newestSequence = event.sequence
-                        last = event.value
-                        emit(DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis, maxAge)))
-                    }
+            .collect { event -> tracker.onEvent(event) }
+    }
 
-                    is Event.Fetching -> if (event.key == key) {
-                        emit(DataState.Loading(last))
-                    }
+    /**
+     * One stream collector's view of the bus: translates engine events into [DataState]s for
+     * [downstream], tracking the last value seen and the newest commit sequence emitted.
+     */
+    private inner class StreamTracker(
+        private val key: K,
+        private val freshness: Freshness,
+        private val maxAge: Duration?,
+        private val downstream: FlowCollector<DataState<V>>,
+    ) {
+        /** Last value this collector has seen; backs the `value` field of Loading/Failure. */
+        private var last: V? = null
 
-                    is Event.Failed -> if (event.key == key) {
-                        emit(DataState.Failure(event.error, last))
-                    }
+        /**
+         * Newest commit sequence this collector has applied. Bus events buffered before the
+         * prime snapshot replay after it, and a commit's bus emission happens outside
+         * [commitGuard] so two racing mutations can reach the bus in the opposite of their
+         * commit order — either way, an event older than the watermark must be rejected,
+         * never applied. The sequence is immune to clock ties and backwards clock steps.
+         */
+        private var newestSequence = Long.MIN_VALUE
 
-                    is Event.Invalidated -> if (event.key == key) {
-                        last = null
-                        newestSequence = Long.MIN_VALUE
-                        if (freshness != Freshness.CacheOnly) refresh(key)
-                    }
-
-                    is Event.ClearedAll -> {
-                        last = null
-                        newestSequence = Long.MIN_VALUE
-                        if (freshness != Freshness.CacheOnly) refresh(key)
-                    }
+        suspend fun onEvent(event: Event<K, V>) {
+            when (event) {
+                is Event.Updated -> if (event.key == key && event.sequence >= newestSequence) {
+                    newestSequence = event.sequence
+                    last = event.value
+                    downstream.emit(
+                        DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis, maxAge)),
+                    )
                 }
+
+                is Event.Fetching -> if (event.key == key) {
+                    downstream.emit(DataState.Loading(last))
+                }
+
+                is Event.Failed -> if (event.key == key) {
+                    downstream.emit(DataState.Failure(event.error, last))
+                }
+
+                is Event.Absent -> if (event.key == key) {
+                    downstream.emit(DataState.Empty)
+                }
+
+                is Event.Invalidated -> if (event.key == key) {
+                    onDrop(event.sequence)
+                }
+
+                is Event.ClearedAll -> onDrop(event.sequence)
             }
+        }
+
+        /**
+         * The observed key (or the whole store) was dropped at [sequence] in the commit
+         * order. The watermark guard mirrors [Event.Updated]'s: a drop that lost the emit
+         * race to a newer write must be rejected, or this collector would erase that write —
+         * and conversely, once a drop is applied, a stale buffered write can no longer
+         * resurrect deleted data (which a CacheOnly stream, having no refetch, would
+         * otherwise render forever).
+         *
+         * Fetch-capable strategies react by refetching — their `Loading(null)` communicates
+         * the loss; cache-only ones get [DataState.Empty] instead, since they cannot fetch.
+         */
+        private suspend fun onDrop(sequence: Long) {
+            if (sequence < newestSequence) return
+            newestSequence = sequence
+            last = null
+            if (freshness != Freshness.CacheOnly) refresh(key) else downstream.emit(DataState.Empty)
+        }
     }
 
     override suspend fun get(key: K, freshness: Freshness, maxAge: Duration?): V {
@@ -222,24 +261,28 @@ internal class RealAquifer<K : Any, V : Any>(
 
     override suspend fun invalidate(key: K) {
         checkOpen()
-        commitGuard.withLock {
+        // The drop takes a slot in the same commit order as writes: bus emission happens
+        // outside the lock, so collectors need the sequence to arbitrate emit races.
+        val sequence = commitGuard.withLock {
             persistence?.delete(key)
             fence(key)
             memory.remove(key)
+            sequencer.incrementAndGet()
         }
-        events.emit(Event.Invalidated(key))
+        events.emit(Event.Invalidated(key, sequence))
     }
 
     override suspend fun invalidateAll() {
         checkOpen()
-        commitGuard.withLock {
+        val sequence = commitGuard.withLock {
             persistence?.deleteAll()
             globalEpoch.incrementAndGet()
             keyEpochs.clear()
             inFlight.clear()
             memory.clear()
+            sequencer.incrementAndGet()
         }
-        events.emit(Event.ClearedAll)
+        events.emit(Event.ClearedAll(sequence))
     }
 
     /**
@@ -363,7 +406,9 @@ internal class RealAquifer<K : Any, V : Any>(
         if (shouldFetch) refresh(key)
         when {
             joinedInFlightFetch -> emit(Event.Fetching(key))
-            !shouldFetch && entry == null -> emit(Event.Failed(key, CacheMissException(key)))
+            // Only CacheOnly reaches here valueless (the staleness-aware strategies fetch on
+            // a miss): an affirmative "nothing cached, nothing will fetch", not a failure.
+            !shouldFetch && entry == null -> emit(Event.Absent(key))
         }
     }
 

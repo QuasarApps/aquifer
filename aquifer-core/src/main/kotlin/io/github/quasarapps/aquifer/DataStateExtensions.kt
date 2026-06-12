@@ -6,18 +6,20 @@ public val DataState<*>.isLoading: Boolean
 
 /**
  * Returns the freshest value or throws: a [DataState.Failure] rethrows its [DataState.Failure.error],
- * and a state with no value yet (e.g. the initial `Loading(null)`) throws [NoSuchElementException].
- * Useful at boundaries that cannot render partial states.
+ * and a state with no value (the initial `Loading(null)`, or [DataState.Empty]) throws
+ * [NoSuchElementException]. Useful at boundaries that cannot render partial states.
  */
 public fun <V : Any> DataState<V>.valueOrThrow(): V = when (this) {
     is DataState.Failure -> throw error
-    else -> value ?: throw NoSuchElementException("No value available yet")
+    // "available", not "available yet": for Empty there is no fetch coming.
+    else -> value ?: throw NoSuchElementException("No value available")
 }
 
 /**
  * Transforms the carried value while preserving the state's shape: `Loading` stays `Loading`,
  * `Content` keeps its [DataState.Content.origin] and staleness, `Failure` keeps its error —
- * each with [transform] applied to the value it carries (when one exists).
+ * each with [transform] applied to the value it carries (when one exists). [DataState.Empty]
+ * passes through unchanged; it carries nothing to transform.
  *
  * ```
  * val names: DataState<String> = userState.map { it.displayName }
@@ -27,6 +29,7 @@ public inline fun <V : Any, R : Any> DataState<V>.map(transform: (V) -> R): Data
     is DataState.Loading -> DataState.Loading(value?.let(transform))
     is DataState.Content -> DataState.Content(transform(value), origin, isStale)
     is DataState.Failure -> DataState.Failure(error, value?.let(transform))
+    is DataState.Empty -> DataState.Empty
 }
 
 /** Runs [action] with the value when this is [DataState.Content]; returns this state for chaining. */

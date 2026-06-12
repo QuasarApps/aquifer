@@ -47,9 +47,11 @@ What every consuming app touches daily; highest user-facing leverage.
   in-memory access-ordered index (exact within a process) seeded from file mtimes across
   restarts — no index file to keep crash-consistent — and an absolute byte cap
   (DiskLruCache-style: an entry exceeding `maxBytes` alone is not retained). *(M)*
-- [ ] **`DataState.Empty` / observable deletion** — today `CacheOnly` observers render
-  deleted data forever (documented in #6's review); an explicit empty state fixes the
-  contract. API-shaping RFC first: it touches every `when` over `DataState`. *(M)*
+- [x] **`DataState.Empty` / observable deletion** — designed in RFC #23, shipped as a new
+  sealed member emitted only to `CacheOnly` streams (initial miss and observed
+  `invalidate`/`invalidateAll`); fetch-capable streams keep signalling through their
+  refetch. Replaces the dishonest `Failure(CacheMissException)` miss emission;
+  source-breaking for exhaustive `when`s, taken deliberately pre-1.0. *(M)*
 
 ## 0.3 — Network efficiency & resilience
 

@@ -102,6 +102,7 @@ users.stream(id).collect { state ->
         is DataState.Loading -> render(state.value, refreshing = true)   // value = previous data, if any
         is DataState.Content -> render(state.value, refreshing = false)  // state.origin: MEMORY / FETCHER / LOCAL
         is DataState.Failure -> renderError(state.error, fallback = state.value)
+        is DataState.Empty -> renderEmpty()  // affirmatively nothing: CacheOnly miss or observed deletion
     }
 }
 ```
@@ -249,6 +250,9 @@ fun `stale profile is served then revalidated`() = runTest {
   screen. Cancelling the store's scope (or `close()`) cancels everything.
 - **Errors are data.** Streams never terminate on fetch failure; failures are emitted as
   `DataState.Failure` carrying the last known value, and broadcast to all observers of the key.
+- **So is absence.** A `CacheOnly` stream of a missing or invalidated key emits
+  `DataState.Empty` — an affirmative "nothing here", distinct from loading and from failure —
+  so cache-only screens observe logout-style resets instead of rendering deleted data forever.
 - **Slow collectors are isolated.** Every stream drains the store's update bus through an
   unbounded per-collector buffer on the store's dispatcher, so one stalled screen can never
   block fetch completion, writes, or other streams.
@@ -268,10 +272,10 @@ reconnect/foreground revalidation, the Android module, release engineering, and 
 review-driven hardening rounds. What's next, in order:
 
 1. **v0.1.0 on Maven Central** — pipeline is ready; needs secrets + a tag.
-2. **Rest of 0.2** — static analysis in CI, per-call freshness parameters, the bounded disk
-   store, and the `DataState.Empty` RFC (`aquifer-compose` and the `DataState` helpers have
-   shipped).
-3. **Network efficiency** — conditional fetching (ETag/304), negative caching, prefetch.
+2. **Network efficiency** — conditional fetching (ETag/304), negative caching, prefetch,
+   batched fetching (0.2 — Compose, detekt, per-call freshness, the bounded disk store, and
+   `DataState.Empty` — has fully shipped).
+3. **Persistence expansion** — DataStore and SQLDelight adapters, encryption hook.
 
 The full plan through 1.0 and beyond — persistence adapters, Lincheck-verified concurrency,
 KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).

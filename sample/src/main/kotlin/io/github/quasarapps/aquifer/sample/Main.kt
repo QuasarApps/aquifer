@@ -118,6 +118,7 @@ private fun DataState<Article>.render(): String = when (this) {
     is DataState.Content ->
         "[content] ${value.title} rev=${value.revision} (${origin}${if (isStale) ", stale" else ""})"
     is DataState.Failure -> "[failure] ${error.message} - still showing: ${value?.title ?: "nothing"}"
+    is DataState.Empty -> "[empty] affirmatively nothing cached"
 }
 
 private fun banner(text: String) {

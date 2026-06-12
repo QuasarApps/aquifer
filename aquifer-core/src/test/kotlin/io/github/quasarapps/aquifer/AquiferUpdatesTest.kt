@@ -99,7 +99,7 @@ class AquiferUpdatesTest {
     }
 
     @Test
-    fun `cache only streams do not refetch on invalidation`() = runTest {
+    fun `cache only streams observe invalidation as empty, never a refetch`() = runTest {
         var calls = 0
         val store = aquifer<String, Int> {
             scope(backgroundScope)
@@ -111,6 +111,7 @@ class AquiferUpdatesTest {
             assertEquals(DataState.Content(100, Origin.MEMORY, isStale = false), awaitItem())
 
             store.invalidate("k")
+            assertEquals(DataState.Empty, awaitItem())
             settle()
             expectNoEvents()
         }

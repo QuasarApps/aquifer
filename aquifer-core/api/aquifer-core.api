@@ -82,6 +82,15 @@ public final class io/github/quasarapps/aquifer/DataState$Content : io/github/qu
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/quasarapps/aquifer/DataState$Empty : io/github/quasarapps/aquifer/DataState {
+	public static final field INSTANCE Lio/github/quasarapps/aquifer/DataState$Empty;
+	public fun equals (Ljava/lang/Object;)Z
+	public synthetic fun getValue ()Ljava/lang/Object;
+	public fun getValue ()Ljava/lang/Void;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/quasarapps/aquifer/DataState$Failure : io/github/quasarapps/aquifer/DataState {
 	public fun <init> (Ljava/lang/Throwable;Ljava/lang/Object;)V
 	public synthetic fun <init> (Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

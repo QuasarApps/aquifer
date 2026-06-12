@@ -21,6 +21,24 @@ versions may contain breaking changes.
 
 - `DataState` extensions: `isLoading`, `valueOrThrow()`, `map`, `onContent`, `onFailure`.
 
+### Added — `DataState.Empty` (observable deletion, RFC #23)
+
+- New sealed member `DataState.Empty`: the store affirmatively has no value and the
+  stream's strategy will not fetch one. Emitted only to `CacheOnly` streams — on initial
+  collection of a missing key, and when the key is dropped by `invalidate`/`invalidateAll`
+  while the stream is active. Cache-only screens now observe logout-style resets instead of
+  rendering deleted data forever. Fetch-capable streams are unchanged (their refetch's
+  `Loading(null)` already communicates the deletion). `previewAquifer` streams missing keys
+  as `Empty` too.
+- **Breaking (pre-1.0), source**: every exhaustive `when` over `DataState` needs an
+  `is DataState.Empty ->` branch.
+- **Breaking (pre-1.0), behavioral**: a `CacheOnly` stream of a missing key emits `Empty`
+  where it previously emitted `Failure(CacheMissException)` — nothing failed, so it is no
+  longer reported as a failure. One-shot `get(key, CacheOnly)` still throws
+  `CacheMissException`.
+- `map` passes `Empty` through; `valueOrThrow()` throws `NoSuchElementException` on it;
+  `onContent`/`onFailure` ignore it.
+
 ### Added — bounded disk store
 
 - `JsonFileSourceOfTruth` accepts optional `maxEntries`/`maxBytes` caps (constructor and
