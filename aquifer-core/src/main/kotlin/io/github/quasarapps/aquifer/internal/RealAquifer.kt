@@ -22,7 +22,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +30,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
@@ -40,6 +40,10 @@ import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+// The engine is deliberately one cohesive class — single-flight, fencing, and the update bus
+// are one interlocking mechanism — and its internal constructor is fed by the builder, so
+// splitting either to satisfy the thresholds would hurt navigability without adding safety.
+@Suppress("TooManyFunctions", "LongParameterList")
 internal class RealAquifer<K : Any, V : Any>(
     private val fetcher: suspend (key: K) -> V,
     private val timeToLive: Duration,
@@ -267,7 +271,7 @@ internal class RealAquifer<K : Any, V : Any>(
                         revalidateActive()
                     } catch (cancellation: CancellationException) {
                         throw cancellation
-                    } catch (failure: Throwable) {
+                    } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
                         // One sweep failed (e.g. a throwing storage read). Report it, but
                         // keep the subscription alive — a single bad sweep must not silently
                         // end reconnect revalidation for the rest of the process lifetime.
@@ -276,7 +280,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (failure: Throwable) {
+            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
                 // The trigger flow itself failed. An uncaught exception here would escape
                 // the supervisor and crash the host process; instead only this subscription
                 // ends and the store keeps working.
@@ -396,7 +400,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 value
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (failure: Throwable) {
+            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
                 notify { onFetchFailed(key, failure, attempts) }
                 // A failure of a fenced-off fetch is stale news; observers already moved on.
                 if (epochOf(key) == epoch) {
@@ -461,7 +465,7 @@ internal class RealAquifer<K : Any, V : Any>(
             store.write(key, PersistedEntry(value, writtenAtMillis))
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (failure: Throwable) {
+        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             // Swallowed by design (the fetch already succeeded); surfaced to observers only.
             notify { onPersistenceWriteFailed(key, failure) }
         }
@@ -484,7 +488,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 return fetcher(key)
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (failure: Throwable) {
+            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
                 val nextDelay = retry.delayAfter(attempt, failure) ?: throw failure
                 notify { onFetchRetried(key, attempt, failure, nextDelay) }
                 attempt++
@@ -515,7 +519,7 @@ internal class RealAquifer<K : Any, V : Any>(
             // visible error.
             coroutineContext.ensureActive()
             throw AquiferException("Aquifer was closed while fetching '$key'", cancellation)
-        } catch (failure: Throwable) {
+        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             return fallback ?: throw failure
         }
     }

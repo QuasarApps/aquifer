@@ -9,7 +9,7 @@ plugins {
     alias(libs.plugins.maven.publish)
 }
 
-group = "io.github.quasar-apps"
+group = "io.github.quasarapps"
 version = "0.1.0-SNAPSHOT"
 
 android {
@@ -67,13 +67,13 @@ dependencies {
 mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
-    coordinates("io.github.quasar-apps", "aquifer-compose", version.toString())
+    coordinates("io.github.quasarapps", "aquifer-compose", version.toString())
     configure(AndroidSingleVariantLibrary("release", sourcesJar = true, publishJavadocJar = true))
 
     pom {
         name.set("Aquifer Compose")
         description.set("Jetpack Compose integration for Aquifer: lifecycle-aware state collection and preview helpers.")
-        url.set("https://github.com/Quasar-Apps/api-library-example")
+        url.set("https://github.com/QuasarApps/aquifer")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
@@ -82,15 +82,15 @@ mavenPublishing {
         }
         developers {
             developer {
-                id.set("quasar-apps")
+                id.set("quasarapps")
                 name.set("Quasar Apps")
-                url.set("https://github.com/Quasar-Apps")
+                url.set("https://github.com/QuasarApps")
             }
         }
         scm {
-            url.set("https://github.com/Quasar-Apps/api-library-example")
-            connection.set("scm:git:git://github.com/Quasar-Apps/api-library-example.git")
-            developerConnection.set("scm:git:ssh://git@github.com/Quasar-Apps/api-library-example.git")
+            url.set("https://github.com/QuasarApps/aquifer")
+            connection.set("scm:git:git://github.com/QuasarApps/aquifer.git")
+            developerConnection.set("scm:git:ssh://git@github.com/QuasarApps/aquifer.git")
         }
     }
 }

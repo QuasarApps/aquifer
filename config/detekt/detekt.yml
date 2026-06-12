@@ -1,0 +1,13 @@
+build:
+  maxIssues: 0
+
+style:
+  MagicNumber:
+    # Test fixtures and the demo lean on literal values by design; additionally, literals in
+    # (companion-object) property declarations are ignored codebase-wide — a named property
+    # is already a named constant.
+    excludes: ['**/test/**', '**/sample/**']
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+  ReturnCount:
+    max: 4

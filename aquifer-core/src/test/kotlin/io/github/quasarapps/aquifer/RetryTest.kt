@@ -82,7 +82,7 @@ class RetryTest {
             scope(backgroundScope)
             fetcher {
                 calls++
-                throw IllegalStateException("not transient")
+                error("not transient")
             }
             retry {
                 maxAttempts = 5

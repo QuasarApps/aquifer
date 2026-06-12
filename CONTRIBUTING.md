@@ -5,7 +5,8 @@ Thanks for your interest in Aquifer!
 ## Building
 
 ```bash
-./gradlew build          # compile, test, and verify the public API surface
+./gradlew build          # compile, test, static analysis, and public API verification
+./gradlew detekt         # static analysis alone (detekt + bundled ktlint formatting rules)
 ./gradlew :sample:run    # runnable tour of the library
 ./gradlew dokkaGenerate  # aggregated API docs in build/dokka/
 ```
@@ -25,6 +26,11 @@ handles everything else.
   store's `scope` and `WallClock`, and assert stream emissions with Turbine. Note that
   `runTest` only drives `backgroundScope` work while the test coroutine is suspended — see
   `TestHelpers.kt`.
+- **Static analysis is part of `check`**: detekt (with ktlint formatting rules) runs on every
+  module against `config/detekt/detekt.yml` with zero tolerated issues. Prefer fixing
+  findings; the few deliberate engine patterns that trip generic rules carry a local
+  `@Suppress` with a justification comment — follow that precedent rather than widening the
+  config.
 - **Generated files** (Gradle wrapper scripts) are upstream-owned; don't hand-edit them.
 
 ## Pull requests
