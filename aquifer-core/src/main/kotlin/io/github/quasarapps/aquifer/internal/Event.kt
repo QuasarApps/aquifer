@@ -25,6 +25,13 @@ internal sealed interface Event<out K : Any, out V : Any> {
     /** The in-flight fetch for [key] failed with [error]. */
     data class Failed<K : Any>(val key: K, val error: Throwable) : Event<K, Nothing>
 
+    /**
+     * The store has no value for [key] and the subscriber's strategy will not fetch one.
+     * Emitted only during stream priming, to cache-only subscribers of a missing key;
+     * surfaces as `DataState.Empty`.
+     */
+    data class Absent<K : Any>(val key: K) : Event<K, Nothing>
+
     /** The cached entry for [key] was dropped. */
     data class Invalidated<K : Any>(val key: K) : Event<K, Nothing>
 

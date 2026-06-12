@@ -25,11 +25,12 @@ import kotlin.time.Duration
  * ```
  *
  * Semantics, scoped to what previews need: [Aquifer.stream] emits `Content(value, MEMORY)`
- * for seeded keys and `Failure(CacheMissException)` for missing ones (handy for previewing
- * error states); [Aquifer.put]/[Aquifer.invalidate] update the seeded map and are reflected
- * live in active streams (interactive previews); [Aquifer.get] and [Aquifer.fresh] return
- * seeded values or throw [CacheMissException]; revalidation hooks and [Aquifer.close] are
- * no-ops. Not suitable for production use.
+ * for seeded keys and [DataState.Empty] for missing ones — previews never fetch, so absence
+ * is an affirmative empty state, exactly as in a real cache-only stream (handy for
+ * previewing empty layouts); [Aquifer.put]/[Aquifer.invalidate] update the seeded map and
+ * are reflected live in active streams (interactive previews); [Aquifer.get] and
+ * [Aquifer.fresh] return seeded values or throw [CacheMissException]; revalidation hooks
+ * and [Aquifer.close] are no-ops. Not suitable for production use.
  */
 public fun <K : Any, V : Any> previewAquifer(vararg entries: Pair<K, V>): Aquifer<K, V> =
     PreviewAquifer(entries.toMap())
@@ -47,7 +48,7 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
                 if (value != null) {
                     DataState.Content(value, Origin.MEMORY, isStale = false)
                 } else {
-                    DataState.Failure(CacheMissException(key))
+                    DataState.Empty
                 }
             }
     }

@@ -55,13 +55,32 @@ public sealed interface DataState<out V : Any> {
      * stale) data alongside the error. Failures are broadcast to every active stream of the
      * key, regardless of which caller triggered the fetch.
      *
-     * @property error the exception thrown by the fetcher (or a [CacheMissException] when a
-     *   [Freshness.CacheOnly] stream found nothing in the cache).
+     * @property error the exception thrown by the fetcher.
      */
     public data class Failure<out V : Any>(
         val error: Throwable,
         override val value: V? = null,
     ) : DataState<V>
+
+    /**
+     * The store affirmatively has no value for the observed key, and this stream's strategy
+     * will not fetch one.
+     *
+     * Emitted only to [Freshness.CacheOnly] streams: on initial collection when nothing is
+     * cached, and when the key is dropped by [Aquifer.invalidate] or [Aquifer.invalidateAll]
+     * while the stream is active — so a cache-only screen observes a logout-style reset
+     * instead of rendering deleted data forever. Fetch-capable streams never emit it; their
+     * post-invalidation refetch communicates the same transition as a [Loading] whose
+     * [value] is `null`.
+     *
+     * This completes the "no value" vocabulary, each shape honest about why: [Loading]
+     * (work in flight), [Failure] (work failed), `Empty` (nothing there, nothing happening).
+     * Render it as your genuine empty state. Designed in
+     * [RFC #23](https://github.com/QuasarApps/aquifer/issues/23).
+     */
+    public data object Empty : DataState<Nothing> {
+        override val value: Nothing? get() = null
+    }
 }
 
 /** Identifies where a [DataState.Content] value came from. */

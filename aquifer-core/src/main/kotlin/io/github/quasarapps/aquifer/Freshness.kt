@@ -21,9 +21,10 @@ public sealed interface Freshness {
      * Never fetch. Serves whatever the cache holds, fresh or stale.
      *
      * [Aquifer.get] throws [CacheMissException] when nothing is cached. A [Aquifer.stream]
-     * emits [DataState.Failure] with a [CacheMissException] instead, then stays subscribed —
-     * it still observes values that other callers fetch or write later, which makes this a
-     * cheap "passive observer" mode.
+     * emits [DataState.Empty] instead — an affirmative "nothing here", not a failure — and
+     * stays subscribed: it still observes values that other callers fetch or write later,
+     * which makes this a cheap "passive observer" mode, and it observes deletion the same
+     * way ([Aquifer.invalidate] emits [DataState.Empty] too).
      */
     public data object CacheOnly : Freshness
 

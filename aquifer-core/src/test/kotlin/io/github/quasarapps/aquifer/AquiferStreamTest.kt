@@ -4,8 +4,6 @@ import app.cash.turbine.test
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
@@ -113,17 +111,15 @@ class AquiferStreamTest {
     }
 
     @Test
-    fun `cache only stream emits cache miss failure then observes later updates`() = runTest {
+    fun `cache only stream emits empty on a miss then observes later updates`() = runTest {
         val store = aquifer<String, String> {
             scope(backgroundScope)
             fetcher { "fetched" }
         }
 
         store.stream("k", Freshness.CacheOnly).test {
-            val miss = awaitItem()
-            assertIs<DataState.Failure<String>>(miss)
-            assertIs<CacheMissException>(miss.error)
-            assertNull(miss.value)
+            // Nothing cached and nothing will fetch: an affirmative Empty, not a Failure.
+            assertEquals(DataState.Empty, awaitItem())
 
             // A different caller fetches the key; the passive stream observes the result.
             store.get("k")

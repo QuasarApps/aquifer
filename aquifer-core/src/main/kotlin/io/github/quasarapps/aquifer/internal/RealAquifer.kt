@@ -162,19 +162,32 @@ internal class RealAquifer<K : Any, V : Any>(
                         emit(DataState.Failure(event.error, last))
                     }
 
+                    is Event.Absent -> if (event.key == key) {
+                        emit(DataState.Empty)
+                    }
+
                     is Event.Invalidated -> if (event.key == key) {
                         last = null
                         newestSequence = Long.MIN_VALUE
-                        if (freshness != Freshness.CacheOnly) refresh(key)
+                        reactToDrop(key, freshness)
                     }
 
                     is Event.ClearedAll -> {
                         last = null
                         newestSequence = Long.MIN_VALUE
-                        if (freshness != Freshness.CacheOnly) refresh(key)
+                        reactToDrop(key, freshness)
                     }
                 }
             }
+    }
+
+    /**
+     * The observed key (or the whole store) was dropped. Fetch-capable strategies refetch —
+     * their `Loading(null)` communicates the loss; cache-only ones get [DataState.Empty]
+     * instead, since they cannot fetch and would otherwise render deleted data forever.
+     */
+    private suspend fun FlowCollector<DataState<V>>.reactToDrop(key: K, freshness: Freshness) {
+        if (freshness != Freshness.CacheOnly) refresh(key) else emit(DataState.Empty)
     }
 
     override suspend fun get(key: K, freshness: Freshness, maxAge: Duration?): V {
@@ -363,7 +376,9 @@ internal class RealAquifer<K : Any, V : Any>(
         if (shouldFetch) refresh(key)
         when {
             joinedInFlightFetch -> emit(Event.Fetching(key))
-            !shouldFetch && entry == null -> emit(Event.Failed(key, CacheMissException(key)))
+            // Only CacheOnly reaches here valueless (the staleness-aware strategies fetch on
+            // a miss): an affirmative "nothing cached, nothing will fetch", not a failure.
+            !shouldFetch && entry == null -> emit(Event.Absent(key))
         }
     }
 
