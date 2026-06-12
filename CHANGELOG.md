@@ -23,6 +23,13 @@ versions may contain breaking changes.
 
 ### Tooling
 
+- Toolchain refresh (supersedes the Dependabot group bump): Gradle 9.5.1, Kotlin 2.4.0,
+  coroutines 1.11.0, serialization 1.11.0, Dokka 2.2.0, vanniktech maven-publish 0.36.0
+  (with the required AGP 8.13.0 companion), Robolectric 4.16.1, molecule 2.2.0. JUnit stays
+  on the 5.x line: JUnit 6 ships JVM-17+ variants only, incompatible with the library's
+  deliberate JVM 11 target — documented in the version catalog, and Dependabot now ignores
+  junit-bom majors.
+
 - Static analysis: detekt 1.23.8 (including the ktlint formatting ruleset) runs on every
   module as part of `check`/`build` with `maxIssues: 0`. The codebase is finding-free; the
   handful of deliberate engine patterns (catch-everything fences, the cohesive engine class)
