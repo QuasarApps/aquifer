@@ -29,6 +29,7 @@ public fun <K : Any, V : Any> aquifer(configure: AquiferBuilder<K, V>.() -> Unit
 public class AquiferBuilder<K : Any, V : Any> internal constructor() {
 
     private var fetcher: (suspend (key: K) -> V)? = null
+    private var conditionalFetcher: (suspend (key: K, validator: String?) -> FetchResult<V>)? = null
     private val memoryCache = MemoryCacheConfig()
     private val freshness = FreshnessConfig()
     private val retry = RetryConfig()
@@ -49,6 +50,22 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      */
     public fun fetcher(fetch: suspend (key: K) -> V) {
         fetcher = fetch
+    }
+
+    /**
+     * Like [fetcher], but conditional: receives the cached entry's
+     * [validator][PersistedEntry.validator] (an `ETag`, `Last-Modified` value, or any opaque
+     * revalidation token from a previous [FetchResult.Fresh]; `null` when nothing usable is
+     * cached) and may answer [FetchResult.NotModified] — the store then keeps the cached
+     * value, refreshes its age so time-to-live decisions start over, and the payload never
+     * crosses the network.
+     *
+     * Configure exactly one of [fetcher] or [conditionalFetcher]. Everything else about
+     * fetching — single-flight sharing, retries, fencing, [DataState.Failure] on thrown
+     * exceptions — behaves identically for both.
+     */
+    public fun conditionalFetcher(fetch: suspend (key: K, validator: String?) -> FetchResult<V>) {
+        conditionalFetcher = fetch
     }
 
     /** Configures the in-memory cache; see [MemoryCacheConfig]. */
@@ -101,9 +118,19 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     }
 
     internal fun build(): Aquifer<K, V> {
-        val fetch = requireNotNull(fetcher) { "aquifer { } requires a fetcher { }" }
+        val plain = fetcher
+        val conditional = conditionalFetcher
+        require(plain == null || conditional == null) {
+            "Configure either fetcher { } or conditionalFetcher { }, not both"
+        }
+        val fetch: suspend (key: K, validator: String?) -> FetchResult<V> = when {
+            conditional != null -> conditional
+            plain != null -> { key, _ -> FetchResult.Fresh(plain(key)) }
+            else -> throw IllegalArgumentException("aquifer { } requires a fetcher { }")
+        }
         return RealAquifer(
             fetcher = fetch,
+            conditional = conditional != null,
             timeToLive = freshness.timeToLive,
             maxEntries = memoryCache.maxEntries,
             clock = clock,

@@ -18,6 +18,8 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
         val writtenAtMillis: Long,
         /** Store-global commit sequence; orders events immune to wall-clock steps. */
         val sequence: Long,
+        /** Revalidation token for conditional fetchers; see [PersistedEntry.validator]. */
+        val validator: String? = null,
     )
 
     private val mutex = Mutex()

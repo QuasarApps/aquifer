@@ -143,7 +143,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // slow read can't lose its place to an eviction pass racing it.
             recordAccess(file)
             val stored = json.decodeFromString(storedSerializer, file.readText())
-            PersistedEntry(stored.value, stored.writtenAtMillis)
+            PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: SerializationException) {
@@ -161,7 +161,8 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     override suspend fun write(key: K, entry: PersistedEntry<V>): Unit = withContext(ioContext) {
         ensureHousekeeping()
         directory.createDirectories()
-        val encoded = json.encodeToString(storedSerializer, Stored(entry.writtenAtMillis, entry.value))
+        val encoded =
+            json.encodeToString(storedSerializer, Stored(entry.writtenAtMillis, entry.value, entry.validator))
         val bytes = encoded.encodeToByteArray()
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
@@ -366,6 +367,8 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     private class Stored<V>(
         val writtenAtMillis: Long,
         val value: V,
+        // Defaulted for forward compatibility: pre-validator cache files decode as null.
+        val validator: String? = null,
     )
 
     public companion object {
