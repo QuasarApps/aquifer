@@ -1,0 +1,11 @@
+build:
+  maxIssues: 0
+
+style:
+  MagicNumber:
+    # Test fixtures and the demo lean on literal values by design.
+    excludes: ['**/test/**', '**/sample/**']
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+  ReturnCount:
+    max: 4

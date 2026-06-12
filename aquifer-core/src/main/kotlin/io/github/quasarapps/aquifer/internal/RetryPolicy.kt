@@ -6,6 +6,7 @@ import kotlin.random.Random
 import kotlin.time.Duration
 
 /** Immutable, testable snapshot of a [RetryConfig] that computes per-attempt delays. */
+@Suppress("LongParameterList") // Mirrors RetryConfig's knobs one-to-one; bundling would just duplicate it.
 internal class RetryPolicy(
     private val maxAttempts: Int,
     private val initialDelay: Duration,

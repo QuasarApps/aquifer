@@ -34,8 +34,8 @@ What every consuming app touches daily; highest user-facing leverage.
   `@Preview`s; behavior-tested with molecule (no UI-test infrastructure). *(M)*
 - [x] **`DataState` ergonomics** — `map`, `onContent`/`onFailure`, `valueOrThrow`,
   `isLoading`; pure additive API (`getOrNull` dropped as redundant with `.value`). *(S)*
-- [ ] **Static analysis in CI** — detekt + ktlint; cheap and raises the floor for every
-  later PR. *(S)*
+- [x] **Static analysis in CI** — detekt with the bundled ktlint formatting rules, zero
+  tolerated issues, wired into `check`. *(S)*
 - [ ] **Per-call freshness parameters** — `CacheFirst(maxAge = 1.minutes)`,
   `StaleWhileRevalidate(maxStale = 1.hours)`; the sealed `Freshness` hierarchy was designed
   to grow this way, the data objects stay as defaults. Needs a short API design note (binary

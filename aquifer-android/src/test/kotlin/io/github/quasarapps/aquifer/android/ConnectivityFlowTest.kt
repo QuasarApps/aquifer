@@ -4,8 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import app.cash.turbine.test
 import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.test
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Origin
 import io.github.quasarapps.aquifer.aquifer
@@ -110,8 +110,8 @@ class ConnectivityFlowTest {
             runCurrent()
             expectNoEvents()
 
-            callback.onLost(cellular)     // now offline
-            callback.onAvailable(wifi)    // restored
+            callback.onLost(cellular) // now offline
+            callback.onAvailable(wifi) // restored
             assertEquals(Unit, awaitItem())
         }
     }

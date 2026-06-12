@@ -6,8 +6,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import java.io.IOException
@@ -93,11 +93,12 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             PersistedEntry(stored.value, stored.writtenAtMillis)
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (corrupt: SerializationException) {
+        } catch (_: SerializationException) {
+            // Undecodable content: heal the slot so the next write recovers it.
             heal(file)
-        } catch (corrupt: IllegalArgumentException) {
+        } catch (_: IllegalArgumentException) {
             heal(file)
-        } catch (transient: IOException) {
+        } catch (_: IOException) {
             // Possibly transient (permissions, mounts, pressure): report absent but keep the
             // file — deleting here could destroy a perfectly good entry.
             null
@@ -123,7 +124,8 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             }
             try {
                 Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (unsupported: AtomicMoveNotSupportedException) {
+            } catch (_: AtomicMoveNotSupportedException) {
+                // Documented fallback: non-atomic replace on filesystems without atomic moves.
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
             }
         } finally {
@@ -152,7 +154,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
 
     private fun fileFor(key: K): Path {
         val digest = MessageDigest.getInstance("SHA-256").digest(keyEncoder(key).encodeToByteArray())
-        val name = digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        val name = digest.joinToString("") { byte -> "%02x".format(byte.toInt() and BYTE_MASK) }
         return directory.resolve("$name.$FILE_EXTENSION")
     }
 
@@ -169,6 +171,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
 
         private const val FILE_EXTENSION = "json"
         private const val TEMP_SUFFIX = ".tmp"
+        private const val BYTE_MASK = 0xff
     }
 }
 

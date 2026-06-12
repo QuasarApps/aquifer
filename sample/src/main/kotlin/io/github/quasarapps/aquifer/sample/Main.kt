@@ -115,7 +115,8 @@ private suspend fun Aquifer<Int, Article>.deleteCachesForRepeatableDemo() = inva
 
 private fun DataState<Article>.render(): String = when (this) {
     is DataState.Loading -> "[loading] showing: ${value?.title ?: "nothing yet"}"
-    is DataState.Content -> "[content] ${value.title} rev=${value.revision} (${origin}${if (isStale) ", stale" else ""})"
+    is DataState.Content ->
+        "[content] ${value.title} rev=${value.revision} (${origin}${if (isStale) ", stale" else ""})"
     is DataState.Failure -> "[failure] ${error.message} - still showing: ${value?.title ?: "nothing"}"
 }
 

@@ -21,6 +21,13 @@ versions may contain breaking changes.
 
 - `DataState` extensions: `isLoading`, `valueOrThrow()`, `map`, `onContent`, `onFailure`.
 
+### Tooling
+
+- Static analysis: detekt 1.23.8 (including the ktlint formatting ruleset) runs on every
+  module as part of `check`/`build` with `maxIssues: 0`. The codebase is finding-free; the
+  handful of deliberate engine patterns (catch-everything fences, the cohesive engine class)
+  carry justified local suppressions.
+
 ### Hardening, round two (post-review fixes, pre-0.1.0)
 
 - **Persistence hydration is now epoch-fenced like fetch commits**: a `SourceOfTruth.read`
