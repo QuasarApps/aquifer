@@ -114,8 +114,9 @@ internal class RealAquifer<K : Any, V : Any>(
 
     /**
      * The failure currently suppressing strategy-driven fetches of [key], or `null` when
-     * fetching is allowed. Observing an expired window removes it. Each suppressed read is
-     * reported via [AquiferEvents.onFetchSuppressed].
+     * fetching is allowed. An expired window stops suppressing but its record is kept — the
+     * consecutive-failure streak resets only on success or mutation. Each suppressed read
+     * is reported via [AquiferEvents.onFetchSuppressed].
      */
     private fun suppression(key: K): NegativeEntry? {
         if (negativeCache == null) return null
@@ -530,8 +531,13 @@ internal class RealAquifer<K : Any, V : Any>(
             } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
                 notify { onFetchFailed(key, failure, attempts) }
                 // A failure of a fenced-off fetch is stale news; observers already moved on.
-                if (epochOf(key) == epoch) {
-                    recordFailure(key, failure)
+                // The check and the record commit together under the guard, so a racing
+                // put/invalidate can't have its just-cleared failure memory re-poisoned by
+                // a terminal failure that observed the pre-mutation epoch.
+                val current = commitGuard.withLock {
+                    (epochOf(key) == epoch).also { if (it) recordFailure(key, failure) }
+                }
+                if (current) {
                     events.emit(Event.Failed(key, failure))
                 }
                 throw failure

@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -27,10 +28,10 @@ class NegativeCachingTest {
             negativeCache { timeToLive = 30.seconds }
         }
 
-        assertFailsWith<Boom> { store.get("k") } // real fetch, remembered
+        val first = assertFailsWith<Boom> { store.get("k") } // real fetch, remembered
         val replay = assertFailsWith<Boom> { store.get("k") } // suppressed: rethrown, no fetch
         assertEquals(1, calls)
-        assertEquals("boom-1", replay.message, "the original exception instance is rethrown")
+        assertSame(first, replay, "the original exception instance is rethrown")
 
         clock.advanceBy(31.seconds)
         assertFailsWith<Boom> { store.get("k") } // window over: the endpoint is asked again

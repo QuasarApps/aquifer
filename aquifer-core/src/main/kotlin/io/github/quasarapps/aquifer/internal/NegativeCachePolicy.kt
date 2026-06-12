@@ -16,6 +16,9 @@ internal class NegativeCachePolicy(config: NegativeCacheConfig) {
      * multiplication with an early exit at the cap, so large counts cannot overflow.
      */
     fun windowFor(consecutiveFailures: Int): Duration {
+        // Constant-time fast path: a flat multiplier never grows the window, and a long
+        // streak (callers guarantee >= 1) must not cost O(streak) per recorded failure.
+        if (multiplier == 1.0) return timeToLive.coerceAtMost(maxTimeToLive)
         var window = timeToLive
         repeat(consecutiveFailures - 1) {
             if (window >= maxTimeToLive) return maxTimeToLive
