@@ -25,12 +25,12 @@ val state: StateFlow<DataState<User>> =
 ```
 
 ```kotlin
-// In Compose:
-val state by viewModel.state.collectAsStateWithLifecycle()
+// In Compose (aquifer-compose): one line, lifecycle-aware, stream shared across recompositions.
+val state by users.collectAsState(userId)
 
 state.value?.let { user -> UserProfile(user) }   // keep content visible while refreshing
-if (state is DataState.Loading) RefreshIndicator()
-if (state is DataState.Failure) RefreshFailedSnackbar()
+if (state.isLoading) RefreshIndicator()
+(state as? DataState.Failure)?.let { RefreshFailedSnackbar(it.error) }
 ```
 
 > ⚠️ **Status: pre-1.0.** The API surface is locked by binary-compatibility validation and the
@@ -40,6 +40,7 @@ if (state is DataState.Failure) RefreshFailedSnackbar()
 > ```kotlin
 > dependencies {
 >     implementation("io.github.quasar-apps:aquifer-core:0.1.0")
+>     implementation("io.github.quasar-apps:aquifer-compose:0.1.0")          // Compose state collection
 >     implementation("io.github.quasar-apps:aquifer-android:0.1.0")          // reconnect/foreground triggers
 >     implementation("io.github.quasar-apps:aquifer-persistence-file:0.1.0") // disk persistence
 > }
@@ -246,21 +247,25 @@ fun `stale profile is served then revalidated`() = runTest {
 
 ## Roadmap
 
-- [x] Core: freshness policies, LRU memory cache, deduplication, reactive streams
-- [x] `SourceOfTruth` persistence layer + disk-backed module (survive process death)
-- [x] Retry policies with exponential backoff and jitter
-- [x] Revalidate-on-reconnect (`revalidateOn`) + observability hooks (`AquiferEvents`)
-- [x] Dokka API docs, binary-compatibility validation, Maven Central publishing pipeline
-- [x] Runnable sample + Android integration recipes
-- [x] `aquifer-android` companion: reconnect + app-foreground revalidation triggers
-- [ ] Tag and publish `v0.1.0`
-- [ ] Compose convenience helpers
+Everything from the original plan has shipped: the core engine, persistence, retries,
+reconnect/foreground revalidation, the Android module, release engineering, and two
+review-driven hardening rounds. What's next, in order:
+
+1. **v0.1.0 on Maven Central** — pipeline is ready; needs secrets + a tag.
+2. **Rest of 0.2** — static analysis in CI, per-call freshness parameters, the bounded disk
+   store, and the `DataState.Empty` RFC (`aquifer-compose` and the `DataState` helpers have
+   shipped).
+3. **Network efficiency** — conditional fetching (ETag/304), negative caching, prefetch.
+
+The full plan through 1.0 and beyond — persistence adapters, Lincheck-verified concurrency,
+KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).
 
 ## Project layout
 
 | Module | Description |
 |---|---|
 | `aquifer-core` | The store: public API + engine. Pure Kotlin/JVM, depends only on `kotlinx-coroutines-core`. |
+| `aquifer-compose` | Jetpack Compose integration: `collectAsState(key)`, `rememberStream`, `previewAquifer` (molecule-tested). |
 | `aquifer-android` | Android library: `revalidateOnReconnect` / `revalidateOnAppForeground` triggers (Robolectric-tested). |
 | `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
 | `sample` | Runnable CLI walkthrough of every feature (`./gradlew :sample:run`). |

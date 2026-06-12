@@ -15,6 +15,8 @@ internal sealed interface Event<out K : Any, out V : Any> {
         val value: V,
         val origin: Origin,
         val writtenAtMillis: Long,
+        /** Commit order, from the store's sequencer — monotone even when the clock isn't. */
+        val sequence: Long,
     ) : Event<K, V>
 
     /** A fetch actually started for [key] (emitted once per shared in-flight fetch). */

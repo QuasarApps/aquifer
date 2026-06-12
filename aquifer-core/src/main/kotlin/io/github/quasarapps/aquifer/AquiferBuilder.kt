@@ -41,9 +41,11 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * The authoritative source of values, typically a network call. Required.
      *
      * The fetcher runs on the Aquifer's coroutine scope and may be invoked concurrently for
-     * different keys, but never concurrently for the same key — concurrent requests share one
-     * in-flight fetch. Thrown exceptions become [DataState.Failure] emissions and, depending
-     * on the requested [Freshness], propagate from [Aquifer.get].
+     * different keys; concurrent requests for one key share a single in-flight fetch. One
+     * exception to that single-flight rule: a mutation ([Aquifer.put]/[Aquifer.invalidate])
+     * during a fetch fences the running request off and lets a new one start, so two calls
+     * for the same key can briefly overlap. Thrown exceptions become [DataState.Failure]
+     * emissions and, depending on the requested [Freshness], propagate from [Aquifer.get].
      */
     public fun fetcher(fetch: suspend (key: K) -> V) {
         fetcher = fetch

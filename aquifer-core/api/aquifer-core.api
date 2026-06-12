@@ -109,6 +109,14 @@ public final class io/github/quasarapps/aquifer/DataState$Loading : io/github/qu
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/quasarapps/aquifer/DataStateExtensionsKt {
+	public static final fun isLoading (Lio/github/quasarapps/aquifer/DataState;)Z
+	public static final fun map (Lio/github/quasarapps/aquifer/DataState;Lkotlin/jvm/functions/Function1;)Lio/github/quasarapps/aquifer/DataState;
+	public static final fun onContent (Lio/github/quasarapps/aquifer/DataState;Lkotlin/jvm/functions/Function1;)Lio/github/quasarapps/aquifer/DataState;
+	public static final fun onFailure (Lio/github/quasarapps/aquifer/DataState;Lkotlin/jvm/functions/Function1;)Lio/github/quasarapps/aquifer/DataState;
+	public static final fun valueOrThrow (Lio/github/quasarapps/aquifer/DataState;)Ljava/lang/Object;
+}
+
 public abstract interface class io/github/quasarapps/aquifer/Freshness {
 }
 

@@ -80,6 +80,13 @@ internal class RealAquifer<K : Any, V : Any>(
     private val globalEpoch = AtomicLong()
     private val keyEpochs = ConcurrentHashMap<K, Long>()
 
+    /**
+     * Stamps every cache commit with a store-global order, assigned under [commitGuard].
+     * Stream collectors use it to drop replayed-out-of-order events; unlike wall-clock
+     * timestamps it is immune to same-millisecond ties and backwards clock steps.
+     */
+    private val sequencer = AtomicLong()
+
     init {
         // A store whose scope dies (parent cancellation or close()) must report itself
         // closed: operations fail fast instead of hanging on a dead bus.
@@ -116,6 +123,9 @@ internal class RealAquifer<K : Any, V : Any>(
     }
 
     private suspend fun FlowCollector<DataState<V>>.collectStates(key: K, freshness: Freshness) {
+        // Captured before hydration so prime() can tell pure LRU eviction (epoch untouched)
+        // apart from invalidation when memory comes up empty.
+        val preloadEpoch = epochOf(key)
         // Hydrate from persistence BEFORE subscribing to the bus: storage I/O must never run
         // inside the subscription, where a subscriber that is not consuming yet would
         // backpressure every emitter in the store. prime() re-reads memory once subscribed,
@@ -123,17 +133,18 @@ internal class RealAquifer<K : Any, V : Any>(
         val preloaded = if (freshness == Freshness.NetworkOnly) null else load(key)
         // Last value this collector has seen; backs the `value` field of Loading/Failure.
         var last: V? = null
-        // Newest write timestamp this collector has emitted. Bus events buffered before the
-        // snapshot was taken replay after it and must not regress us to an older value.
-        var newestWrittenAt = Long.MIN_VALUE
+        // Newest commit sequence this collector has emitted. Bus events buffered before the
+        // snapshot was taken replay after it and must not regress us to an earlier commit;
+        // the sequence is immune to clock ties and backwards wall-clock steps.
+        var newestSequence = Long.MIN_VALUE
         events
-            .onSubscription { prime(key, freshness, preloaded) }
+            .onSubscription { prime(key, freshness, preloaded, preloadEpoch) }
             .buffer(Channel.UNLIMITED)
             .flowOn(busDrainContext)
             .collect { event ->
                 when (event) {
-                    is Event.Updated -> if (event.key == key && event.writtenAtMillis >= newestWrittenAt) {
-                        newestWrittenAt = event.writtenAtMillis
+                    is Event.Updated -> if (event.key == key && event.sequence >= newestSequence) {
+                        newestSequence = event.sequence
                         last = event.value
                         emit(DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis)))
                     }
@@ -148,13 +159,13 @@ internal class RealAquifer<K : Any, V : Any>(
 
                     is Event.Invalidated -> if (event.key == key) {
                         last = null
-                        newestWrittenAt = Long.MIN_VALUE
+                        newestSequence = Long.MIN_VALUE
                         if (freshness != Freshness.CacheOnly) refresh(key)
                     }
 
                     is Event.ClearedAll -> {
                         last = null
-                        newestWrittenAt = Long.MIN_VALUE
+                        newestSequence = Long.MIN_VALUE
                         if (freshness != Freshness.CacheOnly) refresh(key)
                     }
                 }
@@ -191,14 +202,16 @@ internal class RealAquifer<K : Any, V : Any>(
     override suspend fun put(key: K, value: V) {
         checkOpen()
         val now = clock.nowMillis()
+        val entry: MemoryCache.Entry<V>
         commitGuard.withLock {
             // Persist first so a storage failure propagates before anything becomes visible;
             // direct mutations are all-or-nothing, unlike best-effort fetch write-through.
             persistence?.write(key, PersistedEntry(value, now))
             fence(key)
-            memory.put(key, MemoryCache.Entry(value, now))
+            entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
+            memory.put(key, entry)
         }
-        events.emit(Event.Updated(key, value, Origin.LOCAL, now))
+        events.emit(Event.Updated(key, value, Origin.LOCAL, now, entry.sequence))
     }
 
     override suspend fun invalidate(key: K) {
@@ -249,12 +262,24 @@ internal class RealAquifer<K : Any, V : Any>(
         checkOpen()
         scope.launch {
             try {
-                trigger.collect { revalidateActive() }
+                trigger.collect {
+                    try {
+                        revalidateActive()
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        // One sweep failed (e.g. a throwing storage read). Report it, but
+                        // keep the subscription alive — a single bad sweep must not silently
+                        // end reconnect revalidation for the rest of the process lifetime.
+                        notify { onRevalidationTriggerFailed(failure) }
+                    }
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
-                // An uncaught exception here would escape the supervisor and crash the host
-                // process. The trigger's subscription ends; the store keeps working.
+                // The trigger flow itself failed. An uncaught exception here would escape
+                // the supervisor and crash the host process; instead only this subscription
+                // ends and the store keeps working.
                 notify { onRevalidationTriggerFailed(failure) }
             }
         }
@@ -295,20 +320,28 @@ internal class RealAquifer<K : Any, V : Any>(
      * event delivery. Must stay I/O-free: it executes while this subscriber is not yet
      * consuming, so anything slow here backpressures every emitter in the store.
      */
-    private suspend fun FlowCollector<Event<K, V>>.prime(key: K, freshness: Freshness, preloaded: Snapshot<V>?) {
+    private suspend fun FlowCollector<Event<K, V>>.prime(
+        key: K,
+        freshness: Freshness,
+        preloaded: Snapshot<V>?,
+        preloadEpoch: Pair<Long, Long>,
+    ) {
         // Memory only — the persistence read already happened before subscription (see
         // collectStates); doing I/O here would stall the entire bus. NetworkOnly bypasses
         // cached reads entirely.
-        val entry = if (freshness == Freshness.NetworkOnly) null else memory.get(key)
-        if (entry != null) {
-            // Same write as the pre-subscription hydration? Report where it really came
-            // from; anything newer was committed to memory after we hydrated.
-            val origin = if (preloaded != null && preloaded.entry.writtenAtMillis == entry.writtenAtMillis) {
-                preloaded.origin
-            } else {
-                Origin.MEMORY
-            }
-            emit(Event.Updated(key, entry.value, origin, entry.writtenAtMillis))
+        val inMemory = if (freshness == Freshness.NetworkOnly) null else memory.get(key)
+        val snapshot = reconcileSnapshot(preloaded, inMemory, epochUnchanged = epochOf(key) == preloadEpoch)
+        val entry = snapshot?.entry
+        if (snapshot != null) {
+            emit(
+                Event.Updated(
+                    key,
+                    snapshot.entry.value,
+                    snapshot.origin,
+                    snapshot.entry.writtenAtMillis,
+                    snapshot.entry.sequence,
+                ),
+            )
         }
         // A fetch that started before this collector subscribed broadcast its Fetching event
         // too early for us to see it. Note it now (before refresh, so a fetch we start
@@ -345,18 +378,20 @@ internal class RealAquifer<K : Any, V : Any>(
                 val value = fetchWithRetry(key) { attempts = it }
                 val now = clock.nowMillis()
                 notify { onFetchSucceeded(key, (now - startedAt).milliseconds) }
-                val committed = commitGuard.withLock {
-                    val current = epochOf(key) == epoch
-                    if (current) {
-                        memory.put(key, MemoryCache.Entry(value, now))
+                val committed: MemoryCache.Entry<V>? = commitGuard.withLock {
+                    if (epochOf(key) == epoch) {
+                        val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
+                        memory.put(key, entry)
                         persistFetched(key, value, now)
+                        entry
+                    } else {
+                        null
                     }
-                    current
                 }
                 // Re-check before broadcasting: a mutation may have raced the gap above, and
                 // observers should not see a fenced-off value even transiently.
-                if (committed && epochOf(key) == epoch) {
-                    events.emit(Event.Updated(key, value, Origin.FETCHER, now))
+                if (committed != null && epochOf(key) == epoch) {
+                    events.emit(Event.Updated(key, value, Origin.FETCHER, now, committed.sequence))
                 }
                 value
             } catch (cancellation: CancellationException) {
@@ -385,14 +420,34 @@ internal class RealAquifer<K : Any, V : Any>(
      * Loads the freshest locally available entry: memory first, then the source of truth.
      * A persistence hit hydrates the memory cache — preserving the original write timestamp,
      * so staleness decisions remain correct across process restarts and LRU evictions.
+     *
+     * Hydration is epoch-fenced exactly like fetch commits: a storage read suspended across
+     * an [invalidate]/[invalidateAll] must not put the deleted entry back into memory; the
+     * fenced case reports a miss. Memory is also re-checked under the lock — a commit that
+     * raced the storage read (a fetch that just returned, or a put, which also moves the
+     * epoch) is fresher than the disk snapshot by construction and must never be overwritten
+     * by it. The hot memory path never takes [commitGuard].
      */
     private suspend fun load(key: K): Snapshot<V>? {
         memory.get(key)?.let { return Snapshot(it, Origin.MEMORY) }
         val store = persistence ?: return null
+        val epoch = epochOf(key)
         val persisted = store.read(key) ?: return null
-        val entry = MemoryCache.Entry(persisted.value, persisted.writtenAtMillis)
-        memory.put(key, entry)
-        return Snapshot(entry, Origin.PERSISTENCE)
+        return commitGuard.withLock {
+            val existing = memory.get(key)
+            when {
+                existing != null -> Snapshot(existing, Origin.MEMORY)
+
+                epochOf(key) == epoch -> {
+                    val entry =
+                        MemoryCache.Entry(persisted.value, persisted.writtenAtMillis, sequencer.incrementAndGet())
+                    memory.put(key, entry)
+                    Snapshot(entry, Origin.PERSISTENCE)
+                }
+
+                else -> null
+            }
+        }
     }
 
     /**
@@ -412,7 +467,7 @@ internal class RealAquifer<K : Any, V : Any>(
         }
     }
 
-    private data class Snapshot<V : Any>(
+    internal data class Snapshot<V : Any>(
         val entry: MemoryCache.Entry<V>,
         val origin: Origin,
     )
@@ -472,7 +527,34 @@ internal class RealAquifer<K : Any, V : Any>(
 
     private fun checkOpen() = check(!closed.get()) { "Aquifer is closed" }
 
-    private companion object {
+    internal companion object {
         const val EVENT_BUFFER_CAPACITY = 64
+
+        /**
+         * Resolves a new collector's initial snapshot from the pre-subscription hydration
+         * ([preloaded]) and the entry currently in memory:
+         *
+         * - Memory wins when present; if it is the very commit we hydrated (same sequence),
+         *   the preloaded snapshot is kept so its true origin (PERSISTENCE) is reported.
+         * - When memory is empty, an unchanged epoch proves the gap was pure LRU eviction
+         *   and the hydrated snapshot is still valid; a moved epoch means the key was
+         *   invalidated after hydration, so the snapshot must be dropped.
+         */
+        fun <V : Any> reconcileSnapshot(
+            preloaded: Snapshot<V>?,
+            inMemory: MemoryCache.Entry<V>?,
+            epochUnchanged: Boolean,
+        ): Snapshot<V>? = when {
+            inMemory != null ->
+                if (preloaded != null && preloaded.entry.sequence == inMemory.sequence) {
+                    preloaded
+                } else {
+                    Snapshot(inMemory, Origin.MEMORY)
+                }
+
+            preloaded != null && epochUnchanged -> preloaded
+
+            else -> null
+        }
     }
 }

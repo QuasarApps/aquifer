@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
 class AquiferStreamTest {
@@ -128,6 +129,28 @@ class AquiferStreamTest {
             store.get("k")
             assertEquals(DataState.Loading(null), awaitItem())
             assertEquals(DataState.Content("fetched", Origin.FETCHER, isStale = false), awaitItem())
+        }
+    }
+
+    @Test
+    fun `a backwards clock step does not silence stream updates`() = runTest {
+        val clock = FakeClock(initialMillis = 10_000)
+        val store = aquifer<String, String> {
+            scope(backgroundScope)
+            clock(clock)
+            fetcher { "fetched" }
+        }
+        store.put("k", "before-step")
+
+        store.stream("k").test {
+            assertEquals(DataState.Content("before-step", Origin.MEMORY, isStale = false), awaitItem())
+
+            // NTP-style correction: wall clock jumps backwards. Ordering is by commit
+            // sequence, not timestamps, so newer writes must still come through.
+            clock.advanceBy((-5_000).milliseconds)
+            store.put("k", "after-step")
+
+            assertEquals(DataState.Content("after-step", Origin.LOCAL, isStale = false), awaitItem())
         }
     }
 

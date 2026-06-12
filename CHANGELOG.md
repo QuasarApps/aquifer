@@ -7,6 +7,39 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — Compose integration & DataState ergonomics
+
+**`aquifer-compose`** (new module)
+
+- `Aquifer.collectAsState(key, freshness, …)`: lifecycle-aware Compose collection of a key's
+  stream, remembered across recompositions, starting from `Loading(null)`.
+- `Aquifer.rememberStream(key, freshness)`: the remembered raw stream for custom operators.
+- `previewAquifer(vararg entries)`: a fetch-free store for `@Preview`s and UI tests, with
+  live `put`/`invalidate` behavior for interactive previews.
+
+**`aquifer-core`**
+
+- `DataState` extensions: `isLoading`, `valueOrThrow()`, `map`, `onContent`, `onFailure`.
+
+### Hardening, round two (post-review fixes, pre-0.1.0)
+
+- **Persistence hydration is now epoch-fenced like fetch commits**: a `SourceOfTruth.read`
+  suspended across `invalidate`/`invalidateAll` can no longer put the deleted entry back
+  into the memory cache, and memory is re-checked under the commit lock so a fetch commit
+  that races the storage read is never overwritten by the older disk snapshot. The hot
+  memory path still never takes the commit lock.
+- **Stream ordering is clock-independent**: events carry a store-global commit sequence
+  (assigned under the commit guard) instead of relying on `writtenAtMillis`, so same-
+  millisecond ties and backwards wall-clock steps can neither reorder nor silence updates.
+- A hydrated disk snapshot evicted by LRU pressure before its stream subscribes is no longer
+  dropped: an unchanged epoch proves the gap was eviction, not invalidation.
+- A failing revalidation *sweep* (e.g. a throwing storage read) no longer ends the
+  `revalidateOn` subscription; only a failure of the trigger flow itself does. Both are
+  reported via `AquiferEvents.onRevalidationTriggerFailed`, whose docs now say so.
+- Docs: single-flight dedup is per-epoch (a mutation during a fetch can briefly overlap two
+  requests for one key); the file store's new-entry durability after a crash is best-effort
+  (no directory fsync) while the previous-entry guarantee stands.
+
 ### Hardening (post-review fixes, pre-0.1.0)
 
 - **Mutation fencing**: `put`/`invalidate`/`invalidateAll` now fence off fetches that were

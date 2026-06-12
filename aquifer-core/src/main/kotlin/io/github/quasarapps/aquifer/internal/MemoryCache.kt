@@ -16,6 +16,8 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
     internal data class Entry<out V : Any>(
         val value: V,
         val writtenAtMillis: Long,
+        /** Store-global commit sequence; orders events immune to wall-clock steps. */
+        val sequence: Long,
     )
 
     private val mutex = Mutex()

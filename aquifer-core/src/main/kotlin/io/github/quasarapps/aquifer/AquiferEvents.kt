@@ -43,9 +43,15 @@ public interface AquiferEvents<K : Any> {
     public fun onPersistenceWriteFailed(key: K, error: Throwable) {}
 
     /**
-     * A trigger flow passed to [Aquifer.revalidateOn] threw [error]. That trigger's
-     * subscription has ended (the store itself keeps working); without this hook the failure
-     * would be invisible. Re-attach a new trigger if revalidation should continue.
+     * A [Aquifer.revalidateOn] subscription hit [error]. Two cases share this hook:
+     *
+     * - The *trigger flow itself* threw: that subscription has ended (the store keeps
+     *   working) — re-attach a new trigger if revalidation should continue.
+     * - A single *revalidation sweep* threw (for example a failing storage read while
+     *   checking an active key): the subscription stays alive and future trigger emissions
+     *   still revalidate.
+     *
+     * Without this hook either failure would be invisible.
      */
     public fun onRevalidationTriggerFailed(error: Throwable) {}
 }

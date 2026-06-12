@@ -181,6 +181,57 @@ class RevalidateTest {
     }
 
     @Test
+    fun `a failing revalidation sweep does not end the trigger subscription`() = runTest {
+        val failures = mutableListOf<Throwable>()
+        var failReads = false
+        val disk = object : SourceOfTruth<String, Int> {
+            override suspend fun read(key: String): PersistedEntry<Int>? =
+                if (failReads) throw java.io.IOException("disk hiccup") else null
+
+            override suspend fun write(key: String, entry: PersistedEntry<Int>) = Unit
+            override suspend fun delete(key: String) = Unit
+            override suspend fun deleteAll() = Unit
+        }
+        val clock = FakeClock()
+        var fetches = 0
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            clock(clock)
+            fetcher { key -> if (key == "k") ++fetches else -1 }
+            freshness { timeToLive = 1.minutes }
+            memoryCache { maxEntries = 1 }
+            persistence(disk)
+            events(object : AquiferEvents<String> {
+                override fun onRevalidationTriggerFailed(error: Throwable) {
+                    failures += error
+                }
+            })
+        }
+        val trigger = MutableSharedFlow<Unit>()
+        store.revalidateOn(trigger)
+
+        store.stream("k").test {
+            assertEquals(DataState.Loading(null), awaitItem())
+            assertEquals(DataState.Content(1, Origin.FETCHER, isStale = false), awaitItem())
+
+            store.get("evictor") // pushes "k" out of the size-1 memory cache
+            clock.advanceBy(10.minutes) // "k" is stale; the sweep must consult storage
+
+            failReads = true
+            trigger.emit(Unit) // this sweep dies on the failing disk read…
+            settle()
+            assertEquals("disk hiccup", failures.single().message)
+            expectNoEvents()
+
+            failReads = false
+            trigger.emit(Unit) // …but the subscription survives and the next sweep works.
+            assertEquals(DataState.Loading(1), awaitItem())
+            assertEquals(DataState.Content(2, Origin.FETCHER, isStale = false), awaitItem())
+        }
+        assertEquals(2, fetches)
+    }
+
+    @Test
     fun `multiple streams of one key trigger a single shared refresh`() = runTest {
         val clock = FakeClock()
         var calls = 0

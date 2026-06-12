@@ -27,7 +27,6 @@ import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readText
-import kotlin.io.path.writeText
 
 /**
  * A [SourceOfTruth] that stores each entry as a JSON file inside [directory].
@@ -50,9 +49,10 @@ import kotlin.io.path.writeText
  *   filesystem-safe, and the chance of two keys colliding is cryptographically negligible.
  * - [directory] must be dedicated to this store: [deleteAll] removes every `.json` file in it.
  * - Writes go to a temp file that is fsynced and then atomically moved into place, so readers
- *   never observe a torn file and a crash mid-write leaves the previous entry intact. On the
- *   rare filesystem without atomic moves a plain replace is used instead, which weakens the
- *   crash guarantee to best-effort.
+ *   never observe a torn file and a crash mid-write leaves the previous entry intact. (The
+ *   *new* entry's durability across a power loss immediately after the rename is best-effort
+ *   — the directory entry itself is not fsynced.) On the rare filesystem without atomic
+ *   moves a plain replace is used instead, which weakens the crash guarantee to best-effort.
  * - On Android this module requires API 26+ (it is built on `java.nio.file`), or
  *   `coreLibraryDesugaring` with the NIO-enabled desugaring artifact for lower API levels.
  * - Undecodable files are treated as absent: [read] returns `null` and deletes the corrupt
@@ -114,7 +114,11 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // filesystems may otherwise commit the rename before the data, and a power loss
             // would replace the previous entry with a torn or empty file.
             FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
-                channel.write(ByteBuffer.wrap(encoded.encodeToByteArray()))
+                val buffer = ByteBuffer.wrap(encoded.encodeToByteArray())
+                // A single write() may consume only part of the buffer; drain it fully.
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer)
+                }
                 channel.force(true)
             }
             try {
