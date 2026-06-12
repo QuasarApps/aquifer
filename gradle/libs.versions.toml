@@ -2,9 +2,11 @@
 kotlin = "2.4.0"
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.11.0"
-junit = "6.1.0"
+# JUnit 6 requires JVM 17+; this library's test compilations follow its JVM 11 target, so we
+# stay on the 5.x line (Dependabot is configured to skip junit-bom majors accordingly).
+junit = "5.13.4"
 turbine = "1.2.1"
-agp = "8.12.0"
+agp = "8.13.0"
 androidx-lifecycle = "2.9.1"
 androidx-test-core = "1.6.1"
 robolectric = "4.16.1"

@@ -7,6 +7,10 @@ updates:
     groups:
       gradle-dependencies:
         patterns: ['*']
+    ignore:
+      # JUnit 6+ requires JVM 17; the library's test compilations target JVM 11.
+      - dependency-name: org.junit:junit-bom
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
