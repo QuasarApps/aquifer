@@ -39,11 +39,14 @@ What every consuming app touches daily; highest user-facing leverage.
 - [x] **Per-call freshness parameters** — shipped as a `maxAge` parameter on
   `get`/`stream`/`collectAsState` rather than parameterizing the sealed `Freshness` types:
   one orthogonal knob composes with every strategy instead of multiplying sealed variants,
-  and the data objects stay simple defaults. Strategies that never consult staleness are
-  documented as unaffected. *(M)*
-- [ ] **Bounded disk store** — `JsonFileSourceOfTruth` currently grows without limit; add
-  `maxEntries`/`maxBytes` LRU eviction (access-ordered index file or mtime-based) plus
-  orphaned-temp-file GC on open. A real product gap, not a nice-to-have. *(M)*
+  and the data objects stay simple defaults. Fetch decisions change only for the
+  staleness-aware strategies; a stream's `isStale` flags follow the caller's bar under
+  every strategy, and `Duration.INFINITE` means "serve anything cached". *(M)*
+- [x] **Bounded disk store** — `maxEntries`/`maxBytes` LRU eviction on
+  `JsonFileSourceOfTruth` plus orphaned-temp-file GC on first use. Shipped with an
+  in-memory access-ordered index (exact within a process) seeded from file mtimes across
+  restarts — no index file to keep crash-consistent — and an absolute byte cap
+  (DiskLruCache-style: an entry exceeding `maxBytes` alone is not retained). *(M)*
 - [ ] **`DataState.Empty` / observable deletion** — today `CacheOnly` observers render
   deleted data forever (documented in #6's review); an explicit empty state fixes the
   contract. API-shaping RFC first: it touches every `when` over `DataState`. *(M)*

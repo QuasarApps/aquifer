@@ -148,15 +148,21 @@ val articles = aquifer<ArticleId, Article> {
     fetcher { id -> api.fetchArticle(id) }
     freshness { timeToLive = 10.minutes }
     persistence(
-        jsonFileSourceOfTruth(context.filesDir.resolve("aquifer/articles").toPath()),
+        jsonFileSourceOfTruth(
+            directory = context.filesDir.resolve("aquifer/articles").toPath(),
+            maxEntries = 500,                // optional: LRU-bound the disk footprint
+            maxBytes = 10L * 1024 * 1024,
+        ),
     )
 }
 ```
 
 `aquifer-persistence-file` stores one JSON file per key (kotlinx.serialization) with atomic
 writes, SHA-256 file naming for arbitrary keys, and self-healing reads that treat corrupt
-files as absent. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight,
-or DataStore — it's four suspend functions.
+files as absent. The store is unbounded by default; `maxEntries`/`maxBytes` cap it with
+least-recently-used eviction, and temp files orphaned by a crash are cleaned up on first
+use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight, or
+DataStore — it's four suspend functions.
 
 ### Retries with backoff and jitter
 

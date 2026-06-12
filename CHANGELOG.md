@@ -21,6 +21,18 @@ versions may contain breaking changes.
 
 - `DataState` extensions: `isLoading`, `valueOrThrow()`, `map`, `onContent`, `onFailure`.
 
+### Added — bounded disk store
+
+- `JsonFileSourceOfTruth` accepts optional `maxEntries`/`maxBytes` caps (constructor and
+  `jsonFileSourceOfTruth` factory), enforced by least-recently-used eviction after every
+  write. Recency is exact within a process (reads count as use) and seeds from file
+  modification times across restarts; a store found over budget on first use — say, after
+  caps were lowered in an update — is trimmed immediately. The byte cap is absolute: an
+  entry larger than `maxBytes` on its own is not retained. Unbounded remains the default
+  and keeps its zero-overhead path.
+- Temp files orphaned by a crash mid-write are now garbage-collected the first time a store
+  touches the filesystem (previously only `deleteAll` removed them), bounded or not.
+
 ### Added — per-call freshness
 
 - `maxAge` parameter on `Aquifer.get`, `Aquifer.stream`, and Compose's
