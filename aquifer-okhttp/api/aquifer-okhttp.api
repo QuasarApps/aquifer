@@ -1,0 +1,4 @@
+public final class io/github/quasarapps/aquifer/okhttp/OkHttpConditionalFetcherKt {
+	public static final fun okHttpConditionalFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;)Lkotlin/jvm/functions/Function3;
+}
+

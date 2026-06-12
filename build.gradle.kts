@@ -32,6 +32,7 @@ dependencies {
     dokka(project(":aquifer-persistence-file"))
     dokka(project(":aquifer-android"))
     dokka(project(":aquifer-compose"))
+    dokka(project(":aquifer-okhttp"))
 }
 
 dokka {

@@ -7,6 +7,28 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — conditional fetching (ETag / Last-Modified)
+
+- `conditionalFetcher { key, validator -> FetchResult }` on the builder: the fetcher
+  receives the cached entry's opaque validator (an `ETag`, `Last-Modified` value, or any
+  token from a previous `FetchResult.Fresh`) and may answer `FetchResult.NotModified` — the
+  store keeps the cached value, refreshes its age so TTL decisions start over, and the
+  payload never crosses the network. Plain `fetcher { }` stores are untouched, including
+  their exact fetch path (no pre-fetch entry read). Configure exactly one of the two.
+- Validators live in memory and in `PersistedEntry` (new defaulted `validator` field —
+  binary-breaking pre-1.0, source-compatible), and the JSON file store persists them:
+  revalidation stays cheap across process restarts, and pre-validator cache files decode
+  as `validator = null`.
+- **`aquifer-okhttp`** (new module): `okHttpConditionalFetcher(callFactory, request, parse)`
+  wires the headers automatically — captures `ETag`/`Last-Modified` from responses, replays
+  `If-None-Match`/`If-Modified-Since`, maps 304 to `NotModified`, and fails non-2xx through
+  Aquifer's normal retry/failure path.
+- Local `put`s store no validator, so the first fetch after a local edit is unconditional
+  by construction; `NotModified` without a cached entry fails the fetch (fetcher contract
+  violation).
+- Release workflow: the tag-vs-version gate now covers `aquifer-compose` (previously
+  missed) and the new `aquifer-okhttp`.
+
 ### Added — Compose integration & DataState ergonomics
 
 **`aquifer-compose`** (new module)

@@ -44,4 +44,10 @@ public interface SourceOfTruth<K : Any, V : Any> {
 public data class PersistedEntry<V : Any>(
     val value: V,
     val writtenAtMillis: Long,
+    /**
+     * Opaque revalidation token (e.g. an HTTP `ETag`) carried for
+     * [conditional fetchers][AquiferBuilder.conditionalFetcher]; `null` when none. Stores
+     * that persist it keep conditional fetching cheap across process restarts.
+     */
+    val validator: String? = null,
 )

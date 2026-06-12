@@ -57,10 +57,13 @@ What every consuming app touches daily; highest user-facing leverage.
 
 Make the fetch path cheap and stampede-proof under real-world conditions.
 
-- [ ] **Conditional fetching (ETag / Last-Modified)** — give the fetcher access to the
-  cached entry's metadata and a `NotModified` result so 304s refresh TTLs without
-  re-downloading; ship an `aquifer-okhttp` helper for header wiring. The single biggest
-  bandwidth win available. *(L)*
+- [x] **Conditional fetching (ETag / Last-Modified)** — shipped as
+  `conditionalFetcher { key, validator -> FetchResult }` with `Fresh(value, validator)` /
+  `NotModified`: validators are stored next to the value (memory, `PersistedEntry`, the
+  JSON file store) and a 304 re-ages the entry under normal epoch fencing instead of
+  re-downloading. `aquifer-okhttp` ships `okHttpConditionalFetcher` for automatic
+  `ETag`/`If-None-Match` + `Last-Modified`/`If-Modified-Since` wiring. Plain fetchers keep
+  their exact pre-existing path. *(L)*
 - [ ] **Negative caching** — remember fetch failures per key with their own short TTL and
   backoff memory, so a failing endpoint isn't hammered by every new subscriber. *(M)*
 - [ ] **TTL jitter** — optional fuzz on expiry so entries fetched together don't all go

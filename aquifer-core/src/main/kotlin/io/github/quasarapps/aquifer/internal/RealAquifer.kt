@@ -5,6 +5,7 @@ import io.github.quasarapps.aquifer.AquiferEvents
 import io.github.quasarapps.aquifer.AquiferException
 import io.github.quasarapps.aquifer.CacheMissException
 import io.github.quasarapps.aquifer.DataState
+import io.github.quasarapps.aquifer.FetchResult
 import io.github.quasarapps.aquifer.Freshness
 import io.github.quasarapps.aquifer.Origin
 import io.github.quasarapps.aquifer.PersistedEntry
@@ -45,7 +46,9 @@ import kotlin.time.Duration.Companion.milliseconds
 // splitting either to satisfy the thresholds would hurt navigability without adding safety.
 @Suppress("TooManyFunctions", "LongParameterList")
 internal class RealAquifer<K : Any, V : Any>(
-    private val fetcher: suspend (key: K) -> V,
+    private val fetcher: suspend (key: K, validator: String?) -> FetchResult<V>,
+    /** Whether [fetcher] consults validators; plain stores skip the pre-fetch entry read. */
+    private val conditional: Boolean,
     private val timeToLive: Duration,
     maxEntries: Int,
     private val clock: WallClock,
@@ -426,15 +429,20 @@ internal class RealAquifer<K : Any, V : Any>(
             try {
                 events.emit(Event.Fetching(key))
                 notify { onFetchStarted(key) }
+                // The validator — and the value a NotModified resolves to — come from the
+                // entry as it stood when the fetch started; a mutation during the fetch
+                // fences the commit regardless. Plain stores skip this read entirely.
+                val prior = if (conditional) load(key)?.entry else null
                 val startedAt = clock.nowMillis()
-                val value = fetchWithRetry(key) { attempts = it }
+                val result = fetchWithRetry(key, prior?.validator) { attempts = it }
                 val now = clock.nowMillis()
                 notify { onFetchSucceeded(key, (now - startedAt).milliseconds) }
+                val (value, validator) = resolve(key, result, prior)
                 val committed: MemoryCache.Entry<V>? = commitGuard.withLock {
                     if (epochOf(key) == epoch) {
-                        val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
+                        val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet(), validator)
                         memory.put(key, entry)
-                        persistFetched(key, value, now)
+                        persistFetched(key, value, now, validator)
                         entry
                     } else {
                         null
@@ -492,7 +500,12 @@ internal class RealAquifer<K : Any, V : Any>(
 
                 epochOf(key) == epoch -> {
                     val entry =
-                        MemoryCache.Entry(persisted.value, persisted.writtenAtMillis, sequencer.incrementAndGet())
+                        MemoryCache.Entry(
+                            persisted.value,
+                            persisted.writtenAtMillis,
+                            sequencer.incrementAndGet(),
+                            persisted.validator,
+                        )
                     memory.put(key, entry)
                     Snapshot(entry, Origin.PERSISTENCE)
                 }
@@ -507,10 +520,10 @@ internal class RealAquifer<K : Any, V : Any>(
      * successful fetch into an error (the value is already cached and broadcast), so anything
      * but cancellation is swallowed. Direct mutations ([put], [invalidate]) propagate instead.
      */
-    private suspend fun persistFetched(key: K, value: V, writtenAtMillis: Long) {
+    private suspend fun persistFetched(key: K, value: V, writtenAtMillis: Long, validator: String?) {
         val store = persistence ?: return
         try {
-            store.write(key, PersistedEntry(value, writtenAtMillis))
+            store.write(key, PersistedEntry(value, writtenAtMillis, validator))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
@@ -525,15 +538,36 @@ internal class RealAquifer<K : Any, V : Any>(
     )
 
     /**
+     * Resolves what a fetch [result] commits: a [FetchResult.Fresh] carries its own value
+     * and validator; a [FetchResult.NotModified] re-commits the [prior] entry — "still
+     * current" only means something against a cached entry, whose age the commit resets.
+     */
+    private fun resolve(key: K, result: FetchResult<V>, prior: MemoryCache.Entry<V>?): Pair<V, String?> =
+        when (result) {
+            is FetchResult.Fresh -> result.value to result.validator
+            is FetchResult.NotModified -> {
+                val entry = prior
+                // A prior entry alone is not enough: one without a validator (a local put,
+                // or persisted before validators existed) never sent a revalidation token,
+                // so there is nothing a NotModified could be "not modified" against.
+                check(entry != null && entry.validator != null) {
+                    "Fetcher returned NotModified for '$key' but was given no validator " +
+                        "(nothing cached, or the cached entry carries none)"
+                }
+                entry.value to entry.validator
+            }
+        }
+
+    /**
      * Runs the fetcher with the configured [retry] policy. Reports the current attempt number
      * through [onAttempt] so the caller can attribute a terminal failure correctly, and
      * notifies the listener before each backoff sleep. Cancellation is never retried.
      */
-    private suspend fun fetchWithRetry(key: K, onAttempt: (Int) -> Unit): V {
+    private suspend fun fetchWithRetry(key: K, validator: String?, onAttempt: (Int) -> Unit): FetchResult<V> {
         var attempt = 1
         while (true) {
             try {
-                return fetcher(key)
+                return fetcher(key, validator)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {

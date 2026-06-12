@@ -43,6 +43,7 @@ if (state.isLoading) RefreshIndicator()
 >     implementation("io.github.quasarapps:aquifer-compose:0.1.0")          // Compose state collection
 >     implementation("io.github.quasarapps:aquifer-android:0.1.0")          // reconnect/foreground triggers
 >     implementation("io.github.quasarapps:aquifer-persistence-file:0.1.0") // disk persistence
+>     implementation("io.github.quasarapps:aquifer-okhttp:0.1.0")            // ETag/304 revalidation
 > }
 > ```
 
@@ -88,7 +89,7 @@ servable, but due for revalidation:
 
 | Strategy | Fresh entry | Stale entry | Missing entry |
 |---|---|---|---|
-| `CacheOnly` | cache | cache (stale) | error |
+| `CacheOnly` | cache | cache (stale) | `get` throws, `stream` emits `Empty` |
 | `CacheFirst` *(default for `get`)* | cache | fetch → stale on failure | fetch |
 | `StaleWhileRevalidate` *(default for `stream`)* | cache | cache, then revalidate | fetch |
 | `NetworkFirst` | fetch → cache on failure | fetch → stale on failure | fetch |
@@ -179,6 +180,31 @@ retry {
 
 Retries happen *inside* the shared single-flight fetch: observers see one `Loading` and one
 terminal state per cycle, and jitter only ever shortens delays so `maxDelay` is a hard cap.
+
+### Conditional fetching (ETag / 304)
+
+When the backend supports HTTP revalidation, a stale entry doesn't need a re-download to
+become fresh again. A *conditional fetcher* receives the cached entry's validator and may
+answer `NotModified` — the store keeps the value and restarts its TTL:
+
+```kotlin
+val articles = aquifer<ArticleId, Article> {
+    conditionalFetcher(
+        okHttpConditionalFetcher(                  // aquifer-okhttp wires the headers
+            callFactory = client,
+            request = { id -> Request.Builder().url("$BASE/articles/$id").build() },
+            parse = { _, body -> json.decodeFromString<Article>(body.string()) },
+        )
+    )
+    freshness { timeToLive = 10.minutes }
+    persistence(jsonFileSourceOfTruth(dir))        // validators survive restarts too
+}
+```
+
+Responses' `ETag`/`Last-Modified` headers are captured automatically, replayed as
+`If-None-Match`/`If-Modified-Since`, and a 304 re-ages the entry without the payload ever
+crossing the network. No OkHttp? Implement the two-line `when` yourself — the
+`conditionalFetcher { key, validator -> FetchResult }` contract is transport-agnostic.
 
 ### Refresh on reconnect (or foreground)
 
@@ -288,6 +314,7 @@ KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).
 | `aquifer-compose` | Jetpack Compose integration: `collectAsState(key)`, `rememberStream`, `previewAquifer` (molecule-tested). |
 | `aquifer-android` | Android library: `revalidateOnReconnect` / `revalidateOnAppForeground` triggers (Robolectric-tested). |
 | `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
+| `aquifer-okhttp` | OkHttp conditional fetching: automatic `ETag`/`Last-Modified` revalidation, 304 → `NotModified`. |
 | `sample` | Runnable CLI walkthrough of every feature (`./gradlew :sample:run`). |
 
 ## License
