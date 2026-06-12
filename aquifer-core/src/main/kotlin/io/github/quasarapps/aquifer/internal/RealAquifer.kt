@@ -49,6 +49,8 @@ internal class RealAquifer<K : Any, V : Any>(
     private val fetcher: suspend (key: K, validator: String?) -> FetchResult<V>,
     /** Whether [fetcher] consults validators; plain stores skip the pre-fetch entry read. */
     private val conditional: Boolean,
+    /** Failure-memory parameters; `null` disables negative caching entirely. */
+    private val negativeCache: NegativeCachePolicy? = null,
     private val timeToLive: Duration,
     maxEntries: Int,
     private val clock: WallClock,
@@ -94,6 +96,52 @@ internal class RealAquifer<K : Any, V : Any>(
      * to same-millisecond ties and backwards clock steps.
      */
     private val sequencer = AtomicLong()
+
+    /**
+     * Failure memory for negative caching (used only when [negativeCache] is set): the last
+     * terminal failure per key with its suppression deadline. Entries are removed only on a
+     * successful commit or on [put]/[invalidate]/[invalidateAll] — an *expired* entry stays,
+     * no longer suppressing but still carrying the consecutive-failure streak, so a
+     * chronically failing key keeps its stretched window between spaced-out probes.
+     */
+    private val negative = ConcurrentHashMap<K, NegativeEntry>()
+
+    private class NegativeEntry(
+        val error: Throwable,
+        val consecutiveFailures: Int,
+        val suppressUntilMillis: Long,
+    )
+
+    /**
+     * The failure currently suppressing strategy-driven fetches of [key], or `null` when
+     * fetching is allowed. Observing an expired window removes it. Each suppressed read is
+     * reported via [AquiferEvents.onFetchSuppressed].
+     */
+    private fun suppression(key: K): NegativeEntry? {
+        if (negativeCache == null) return null
+        val entry = negative[key] ?: return null
+        val now = clock.nowMillis()
+        // Expired: fetching is allowed again, but the record stays — the streak resets only
+        // on success or mutation, never by the mere passage of time.
+        if (now >= entry.suppressUntilMillis) return null
+        notify { onFetchSuppressed(key, entry.error, (entry.suppressUntilMillis - now).milliseconds) }
+        return entry
+    }
+
+    /** Serves [fallback] (stale-if-error without re-fetching) or rethrows the remembered
+     *  failure while [key] is suppressed; otherwise fetches via [fetch]. */
+    private suspend fun fetchUnlessSuppressed(key: K, fallback: V?, fetch: suspend () -> V): V {
+        val block = suppression(key) ?: return fetch()
+        return fallback ?: throw block.error
+    }
+
+    /** Remembers a terminal [failure] of [key]; consecutive failures stretch the window. */
+    private fun recordFailure(key: K, failure: Throwable) {
+        val policy = negativeCache ?: return
+        val failures = (negative[key]?.consecutiveFailures ?: 0) + 1
+        val window = policy.windowFor(failures)
+        negative[key] = NegativeEntry(failure, failures, clock.nowMillis() + window.inWholeMilliseconds)
+    }
 
     init {
         // A store whose scope dies (parent cancellation or close()) must report itself
@@ -229,18 +277,28 @@ internal class RealAquifer<K : Any, V : Any>(
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
 
             Freshness.CacheFirst ->
-                if (usable) entry.value else awaitFetch(key, fallback = entry?.value)
+                if (usable) {
+                    entry.value
+                } else {
+                    fetchUnlessSuppressed(key, fallback = entry?.value) {
+                        awaitFetch(key, fallback = entry?.value)
+                    }
+                }
 
             Freshness.StaleWhileRevalidate ->
                 if (entry != null) {
-                    if (!usable) refresh(key)
+                    if (!usable && suppression(key) == null) refresh(key)
                     entry.value
                 } else {
-                    awaitFetch(key, fallback = null)
+                    fetchUnlessSuppressed(key, fallback = null) { awaitFetch(key, fallback = null) }
                 }
 
-            Freshness.NetworkFirst -> awaitFetch(key, fallback = entry?.value)
+            Freshness.NetworkFirst ->
+                fetchUnlessSuppressed(key, fallback = entry?.value) {
+                    awaitFetch(key, fallback = entry?.value)
+                }
 
+            // Deliberately bypasses the negative cache: an explicit demand for the network.
             Freshness.NetworkOnly -> awaitFetch(key, fallback = null)
         }
     }
@@ -256,6 +314,7 @@ internal class RealAquifer<K : Any, V : Any>(
             // direct mutations are all-or-nothing, unlike best-effort fetch write-through.
             persistence?.write(key, PersistedEntry(value, now))
             fence(key)
+            negative.remove(key)
             entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
             memory.put(key, entry)
         }
@@ -269,6 +328,7 @@ internal class RealAquifer<K : Any, V : Any>(
         val sequence = commitGuard.withLock {
             persistence?.delete(key)
             fence(key)
+            negative.remove(key)
             memory.remove(key)
             sequencer.incrementAndGet()
         }
@@ -282,6 +342,7 @@ internal class RealAquifer<K : Any, V : Any>(
             globalEpoch.incrementAndGet()
             keyEpochs.clear()
             inFlight.clear()
+            negative.clear()
             memory.clear()
             sequencer.incrementAndGet()
         }
@@ -306,7 +367,7 @@ internal class RealAquifer<K : Any, V : Any>(
         checkOpen()
         for (key in activeKeys.keys) {
             val entry = load(key)?.entry
-            if (entry == null || isExpired(entry.writtenAtMillis)) refresh(key)
+            if ((entry == null || isExpired(entry.writtenAtMillis)) && suppression(key) == null) refresh(key)
         }
     }
 
@@ -401,18 +462,27 @@ internal class RealAquifer<K : Any, V : Any>(
         // ourselves is not mistaken for a pre-existing one) and replay it below.
         val joinedInFlightFetch = inFlight.containsKey(key)
         val needsValue = entry == null || isExpired(entry.writtenAtMillis, maxAge)
-        val shouldFetch = when (freshness) {
-            Freshness.CacheOnly -> false
-            Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> needsValue
-            Freshness.NetworkFirst, Freshness.NetworkOnly -> true
-        }
-        if (shouldFetch) refresh(key)
+        val wantsFetch = wantsFetch(freshness, needsValue)
+        // NetworkOnly bypasses the negative cache (explicit network demand); the other
+        // fetch-capable strategies stand down while a recent failure is remembered.
+        val block = if (wantsFetch && freshness != Freshness.NetworkOnly) suppression(key) else null
+        if (wantsFetch && block == null) refresh(key)
         when {
             joinedInFlightFetch -> emit(Event.Fetching(key))
+            // A suppressed, valueless subscriber still deserves a state: the remembered
+            // failure, exactly as if it had just happened.
+            block != null && entry == null -> emit(Event.Failed(key, block.error))
             // Only CacheOnly reaches here valueless (the staleness-aware strategies fetch on
             // a miss): an affirmative "nothing cached, nothing will fetch", not a failure.
-            !shouldFetch && entry == null -> emit(Event.Absent(key))
+            !wantsFetch && entry == null -> emit(Event.Absent(key))
         }
+    }
+
+    /** Whether [freshness] calls for a fetch given the snapshot, before negative-cache gating. */
+    private fun wantsFetch(freshness: Freshness, needsValue: Boolean): Boolean = when (freshness) {
+        Freshness.CacheOnly -> false
+        Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> needsValue
+        Freshness.NetworkFirst, Freshness.NetworkOnly -> true
     }
 
     /**
@@ -451,6 +521,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 // Re-check before broadcasting: a mutation may have raced the gap above, and
                 // observers should not see a fenced-off value even transiently.
                 if (committed != null && epochOf(key) == epoch) {
+                    negative.remove(key)
                     events.emit(Event.Updated(key, value, Origin.FETCHER, now, committed.sequence))
                 }
                 value
@@ -460,6 +531,7 @@ internal class RealAquifer<K : Any, V : Any>(
                 notify { onFetchFailed(key, failure, attempts) }
                 // A failure of a fenced-off fetch is stale news; observers already moved on.
                 if (epochOf(key) == epoch) {
+                    recordFailure(key, failure)
                     events.emit(Event.Failed(key, failure))
                 }
                 throw failure

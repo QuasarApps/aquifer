@@ -24,6 +24,7 @@ public final class io/github/quasarapps/aquifer/AquiferBuilder {
 	public final fun fetcher (Lkotlin/jvm/functions/Function2;)V
 	public final fun freshness (Lkotlin/jvm/functions/Function1;)V
 	public final fun memoryCache (Lkotlin/jvm/functions/Function1;)V
+	public final fun negativeCache (Lkotlin/jvm/functions/Function1;)V
 	public final fun persistence (Lio/github/quasarapps/aquifer/SourceOfTruth;)V
 	public final fun retry (Lkotlin/jvm/functions/Function1;)V
 	public final fun scope (Lkotlinx/coroutines/CoroutineScope;)V
@@ -41,6 +42,7 @@ public abstract interface class io/github/quasarapps/aquifer/AquiferEvents {
 	public fun onFetchRetried-Wn2Vu4Y (Ljava/lang/Object;ILjava/lang/Throwable;J)V
 	public fun onFetchStarted (Ljava/lang/Object;)V
 	public fun onFetchSucceeded-HG0u8IE (Ljava/lang/Object;J)V
+	public fun onFetchSuppressed-SxA4cEA (Ljava/lang/Object;Ljava/lang/Throwable;J)V
 	public fun onPersistenceWriteFailed (Ljava/lang/Object;Ljava/lang/Throwable;)V
 	public fun onRevalidationTriggerFailed (Ljava/lang/Throwable;)V
 }
@@ -50,6 +52,7 @@ public final class io/github/quasarapps/aquifer/AquiferEvents$DefaultImpls {
 	public static fun onFetchRetried-Wn2Vu4Y (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Object;ILjava/lang/Throwable;J)V
 	public static fun onFetchStarted (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Object;)V
 	public static fun onFetchSucceeded-HG0u8IE (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Object;J)V
+	public static fun onFetchSuppressed-SxA4cEA (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Object;Ljava/lang/Throwable;J)V
 	public static fun onPersistenceWriteFailed (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Object;Ljava/lang/Throwable;)V
 	public static fun onRevalidationTriggerFailed (Lio/github/quasarapps/aquifer/AquiferEvents;Ljava/lang/Throwable;)V
 }
@@ -197,6 +200,15 @@ public final class io/github/quasarapps/aquifer/FreshnessConfig {
 public final class io/github/quasarapps/aquifer/MemoryCacheConfig {
 	public final fun getMaxEntries ()I
 	public final fun setMaxEntries (I)V
+}
+
+public final class io/github/quasarapps/aquifer/NegativeCacheConfig {
+	public final fun getBackoffMultiplier ()D
+	public final fun getMaxTimeToLive-UwyO8pc ()J
+	public final fun getTimeToLive-UwyO8pc ()J
+	public final fun setBackoffMultiplier (D)V
+	public final fun setMaxTimeToLive-LRDsOJo (J)V
+	public final fun setTimeToLive-LRDsOJo (J)V
 }
 
 public final class io/github/quasarapps/aquifer/Origin : java/lang/Enum {
