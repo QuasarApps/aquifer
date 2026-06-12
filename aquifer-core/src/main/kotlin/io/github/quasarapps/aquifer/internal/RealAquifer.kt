@@ -546,8 +546,13 @@ internal class RealAquifer<K : Any, V : Any>(
         when (result) {
             is FetchResult.Fresh -> result.value to result.validator
             is FetchResult.NotModified -> {
-                val entry = checkNotNull(prior) {
-                    "Fetcher returned NotModified for '$key' but was given no validator (nothing cached)"
+                val entry = prior
+                // A prior entry alone is not enough: one without a validator (a local put,
+                // or persisted before validators existed) never sent a revalidation token,
+                // so there is nothing a NotModified could be "not modified" against.
+                check(entry != null && entry.validator != null) {
+                    "Fetcher returned NotModified for '$key' but was given no validator " +
+                        "(nothing cached, or the cached entry carries none)"
                 }
                 entry.value to entry.validator
             }

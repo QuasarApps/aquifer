@@ -113,6 +113,19 @@ class ConditionalFetchingTest {
     }
 
     @Test
+    fun `not modified against a validator-less entry fails the fetch`() = runTest {
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            conditionalFetcher { _, _ -> FetchResult.NotModified }
+        }
+        store.put("k", 5) // cached, but a local write carries no revalidation token
+
+        // A misbehaving fetcher answered NotModified to a null validator: re-aging the
+        // entry would fake a revalidation that never happened.
+        assertFailsWith<IllegalStateException> { store.fresh("k") }
+    }
+
+    @Test
     fun `a local put clears the validator`() = runTest {
         var seen: String? = "sentinel"
         val store = aquifer<String, Int> {

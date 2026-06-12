@@ -82,13 +82,19 @@ public fun <K : Any, V : Any> okHttpConditionalFetcher(
 private const val VALIDATOR_SEPARATOR = '\n'
 
 private fun Request.withValidatorHeaders(validator: String?): Request {
-    if (validator == null) return this
-    val etag = validator.substringBefore(VALIDATOR_SEPARATOR)
-    val lastModified = validator.substringAfter(VALIDATOR_SEPARATOR, missingDelimiterValue = "")
-    return newBuilder().apply {
-        if (etag.isNotEmpty()) header("If-None-Match", etag)
-        if (lastModified.isNotEmpty()) header("If-Modified-Since", lastModified)
-    }.build()
+    // Both headers are always stripped first: the validator is the single source of truth
+    // for conditionality, so a caller-set header never leaks into an unconditional fetch
+    // (and a one-sided validator never leaves the other header behind).
+    val builder = newBuilder()
+        .removeHeader("If-None-Match")
+        .removeHeader("If-Modified-Since")
+    if (validator != null) {
+        val etag = validator.substringBefore(VALIDATOR_SEPARATOR)
+        val lastModified = validator.substringAfter(VALIDATOR_SEPARATOR, missingDelimiterValue = "")
+        if (etag.isNotEmpty()) builder.header("If-None-Match", etag)
+        if (lastModified.isNotEmpty()) builder.header("If-Modified-Since", lastModified)
+    }
+    return builder.build()
 }
 
 private fun validatorOf(response: Response): String? {

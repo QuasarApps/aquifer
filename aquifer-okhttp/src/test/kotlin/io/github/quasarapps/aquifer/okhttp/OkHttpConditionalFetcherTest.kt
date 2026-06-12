@@ -100,6 +100,28 @@ class OkHttpConditionalFetcherTest {
     }
 
     @Test
+    fun `caller-set conditional headers are stripped from unconditional fetches`() = runTest {
+        server.enqueue(MockResponse().setBody("v1"))
+        val staleHeaders = okHttpConditionalFetcher<String, String>(
+            callFactory = client,
+            request = { key ->
+                Request.Builder()
+                    .url(server.url("/items/$key"))
+                    .header("If-None-Match", "\"stale\"")
+                    .header("If-Modified-Since", "Wed, 21 Oct 2015 07:28:00 GMT")
+                    .build()
+            },
+            parse = { _, body -> body.string() },
+        )
+
+        staleHeaders("k", null) // unconditional: the validator is the only source of truth
+
+        val sent = server.takeRequest()
+        assertNull(sent.getHeader("If-None-Match"))
+        assertNull(sent.getHeader("If-Modified-Since"))
+    }
+
+    @Test
     fun `a bare foreign validator is sent as an ETag`() = runTest {
         server.enqueue(MockResponse().setResponseCode(304))
 
