@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.maven.publish)
 }
 
-group = "io.github.quasar-apps"
+group = "io.github.quasarapps"
 version = "0.1.0-SNAPSHOT"
 
 android {
@@ -56,13 +56,13 @@ dependencies {
 mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
-    coordinates("io.github.quasar-apps", "aquifer-android", version.toString())
+    coordinates("io.github.quasarapps", "aquifer-android", version.toString())
     configure(AndroidSingleVariantLibrary("release", sourcesJar = true, publishJavadocJar = true))
 
     pom {
         name.set("Aquifer Android")
         description.set("Android integrations for Aquifer: connectivity- and lifecycle-driven revalidation triggers.")
-        url.set("https://github.com/Quasar-Apps/aquifer")
+        url.set("https://github.com/QuasarApps/aquifer")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
@@ -71,15 +71,15 @@ mavenPublishing {
         }
         developers {
             developer {
-                id.set("quasar-apps")
+                id.set("quasarapps")
                 name.set("Quasar Apps")
-                url.set("https://github.com/Quasar-Apps")
+                url.set("https://github.com/QuasarApps")
             }
         }
         scm {
-            url.set("https://github.com/Quasar-Apps/aquifer")
-            connection.set("scm:git:git://github.com/Quasar-Apps/aquifer.git")
-            developerConnection.set("scm:git:ssh://git@github.com/Quasar-Apps/aquifer.git")
+            url.set("https://github.com/QuasarApps/aquifer")
+            connection.set("scm:git:git://github.com/QuasarApps/aquifer.git")
+            developerConnection.set("scm:git:ssh://git@github.com/QuasarApps/aquifer.git")
         }
     }
 }

@@ -1,6 +1,6 @@
 # Aquifer
 
-[![CI](https://github.com/Quasar-Apps/aquifer/actions/workflows/ci.yml/badge.svg)](https://github.com/Quasar-Apps/aquifer/actions/workflows/ci.yml)
+[![CI](https://github.com/QuasarApps/aquifer/actions/workflows/ci.yml/badge.svg)](https://github.com/QuasarApps/aquifer/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.2-7F52FF.svg?logo=kotlin)](https://kotlinlang.org)
 
@@ -39,10 +39,10 @@ if (state.isLoading) RefreshIndicator()
 >
 > ```kotlin
 > dependencies {
->     implementation("io.github.quasar-apps:aquifer-core:0.1.0")
->     implementation("io.github.quasar-apps:aquifer-compose:0.1.0")          // Compose state collection
->     implementation("io.github.quasar-apps:aquifer-android:0.1.0")          // reconnect/foreground triggers
->     implementation("io.github.quasar-apps:aquifer-persistence-file:0.1.0") // disk persistence
+>     implementation("io.github.quasarapps:aquifer-core:0.1.0")
+>     implementation("io.github.quasarapps:aquifer-compose:0.1.0")          // Compose state collection
+>     implementation("io.github.quasarapps:aquifer-android:0.1.0")          // reconnect/foreground triggers
+>     implementation("io.github.quasarapps:aquifer-persistence-file:0.1.0") // disk persistence
 > }
 > ```
 
