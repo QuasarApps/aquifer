@@ -31,4 +31,5 @@ rootProject.name = "aquifer"
 include(":aquifer-core")
 include(":aquifer-persistence-file")
 include(":aquifer-android")
+include(":aquifer-compose")
 include(":sample")

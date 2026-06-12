@@ -7,6 +7,20 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — Compose integration & DataState ergonomics
+
+**`aquifer-compose`** (new module)
+
+- `Aquifer.collectAsState(key, freshness, …)`: lifecycle-aware Compose collection of a key's
+  stream, remembered across recompositions, starting from `Loading(null)`.
+- `Aquifer.rememberStream(key, freshness)`: the remembered raw stream for custom operators.
+- `previewAquifer(vararg entries)`: a fetch-free store for `@Preview`s and UI tests, with
+  live `put`/`invalidate` behavior for interactive previews.
+
+**`aquifer-core`**
+
+- `DataState` extensions: `isLoading`, `valueOrThrow()`, `map`, `onContent`, `onFailure`.
+
 ### Hardening, round two (post-review fixes, pre-0.1.0)
 
 - **Persistence hydration is now epoch-fenced like fetch commits**: a `SourceOfTruth.read`

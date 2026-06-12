@@ -29,11 +29,11 @@ Everything else compounds once there's a public artifact.
 
 What every consuming app touches daily; highest user-facing leverage.
 
-- [ ] **`aquifer-compose` module** — `Flow<DataState<V>>.collectAsAquiferState()` built on
-  `collectAsStateWithLifecycle`, a `rememberStream(aquifer, key)` helper, and
-  preview-friendly fake stores. Runtime-only (no UI-test infrastructure needed). *(M)*
-- [ ] **`DataState` ergonomics** — `map`, `onContent`/`onFailure`, `getOrNull`,
-  `valueOrThrow`, `isLoading`; pure additive API. *(S)*
+- [x] **`aquifer-compose` module** — `Aquifer.collectAsState(key)` built on
+  `collectAsStateWithLifecycle`, a `rememberStream` helper, and a `previewAquifer` fake for
+  `@Preview`s; behavior-tested with molecule (no UI-test infrastructure). *(M)*
+- [x] **`DataState` ergonomics** — `map`, `onContent`/`onFailure`, `valueOrThrow`,
+  `isLoading`; pure additive API (`getOrNull` dropped as redundant with `.value`). *(S)*
 - [ ] **Static analysis in CI** — detekt + ktlint; cheap and raises the floor for every
   later PR. *(S)*
 - [ ] **Per-call freshness parameters** — `CacheFirst(maxAge = 1.minutes)`,
