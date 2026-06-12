@@ -248,14 +248,15 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
                 index.clear()
                 totalBytes = 0
                 entries.filter { it.extension == FILE_EXTENSION }
-                    .mapNotNull { file ->
-                        runCatching {
-                            Triple(
-                                file.fileName.toString(),
-                                Files.size(file),
-                                Files.getLastModifiedTime(file).toMillis(),
-                            )
-                        }.getOrNull()
+                    .map { file ->
+                        // A file whose metadata can't be read still occupies the directory:
+                        // index it with zero size and eldest priority so it stays counted
+                        // and evictable instead of invisible to the budget.
+                        Triple(
+                            file.fileName.toString(),
+                            runCatching { Files.size(file) }.getOrDefault(0L),
+                            runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrDefault(0L),
+                        )
                     }
                     .sortedBy { (_, _, modifiedAt) -> modifiedAt }
                     .forEach { (name, size, _) ->

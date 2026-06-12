@@ -29,7 +29,8 @@ versions may contain breaking changes.
   modification times across restarts; a store found over budget on first use — say, after
   caps were lowered in an update — is trimmed immediately. The byte cap is absolute: an
   entry larger than `maxBytes` on its own is not retained. Unbounded remains the default
-  and keeps its zero-overhead path.
+  and adds no per-operation locking or accounting — just the one-time temp GC below and a
+  per-call flag check.
 - Temp files orphaned by a crash mid-write are now garbage-collected the first time a store
   touches the filesystem (previously only `deleteAll` removed them), bounded or not.
 
