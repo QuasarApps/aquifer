@@ -178,6 +178,10 @@ retry {
 }
 ```
 
+The expiry-side mirror is `freshness { ttlJitter = 0.1 }`: entries fetched together get
+deterministically spread expiries (never *later* than `timeToLive`), so a list screen's 50
+items don't all revalidate in the same frame.
+
 Retries happen *inside* the shared single-flight fetch: observers see one `Loading` and one
 terminal state per cycle, and jitter only ever shortens delays so `maxDelay` is a hard cap.
 

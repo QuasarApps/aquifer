@@ -70,8 +70,11 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   remembered error), `NetworkOnly` bypasses, success/mutation clears, and the
   consecutive-failure streak — which survives window expiry — stretches the window.
   Suppressions are observable via `onFetchSuppressed`. *(M)*
-- [ ] **TTL jitter** — optional fuzz on expiry so entries fetched together don't all go
-  stale together (the request-stampede mirror of retry jitter). *(S)*
+- [x] **TTL jitter** — shipped as `freshness { ttlJitter = 0.1 }`: shorten-only (the
+  configured TTL stays the hard cap, mirroring retry jitter's rule), with each entry's
+  factor derived deterministically from its write timestamp — stable across checks and
+  restarts, no fresh/stale flicker, nothing extra persisted. `maxAge` overrides stay
+  exact. *(S)*
 - [ ] **`prefetch(key)`** — fire-and-forget warmup honoring freshness and dedup; trivial
   API, large perceived-performance payoff for predictable navigation. *(S)*
 - [ ] **Batched fetching** — `getAll(keys)`/`streamMany(keys)` with an optional coalescing

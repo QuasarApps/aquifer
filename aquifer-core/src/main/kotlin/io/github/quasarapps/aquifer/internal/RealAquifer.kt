@@ -52,6 +52,8 @@ internal class RealAquifer<K : Any, V : Any>(
     /** Failure-memory parameters; `null` disables negative caching entirely. */
     private val negativeCache: NegativeCachePolicy? = null,
     private val timeToLive: Duration,
+    /** Fraction (0..1) deterministically shortening each entry's effective TTL; 0 = off. */
+    private val ttlJitter: Double = 0.0,
     maxEntries: Int,
     private val clock: WallClock,
     parentScope: CoroutineScope?,
@@ -691,13 +693,22 @@ internal class RealAquifer<K : Any, V : Any>(
         }
     }
 
-    /** Staleness against [maxAge] when given (per-call override), else the store-wide TTL. */
+    /**
+     * Staleness against [maxAge] when given (per-call override, never jittered — it is the
+     * caller's explicit bar), else the store-wide TTL with the entry's deterministic jitter.
+     */
     private fun isExpired(writtenAtMillis: Long, maxAge: Duration? = null): Boolean {
-        val horizon = maxAge ?: timeToLive
+        val horizon = maxAge ?: jitteredTimeToLive(writtenAtMillis)
         // Duration arithmetic, not inWholeMilliseconds: a sub-millisecond horizon must not
         // truncate to zero and declare everything instantly stale. INFINITE compares false
         // against any finite elapsed time, giving "always fresh" naturally.
         return (clock.nowMillis() - writtenAtMillis).milliseconds >= horizon
+    }
+
+    /** This entry's effective TTL: scaled by a stable factor of its own write timestamp. */
+    private fun jitteredTimeToLive(writtenAtMillis: Long): Duration {
+        if (ttlJitter == 0.0 || timeToLive == Duration.INFINITE) return timeToLive
+        return timeToLive * (1.0 - ttlJitter * TtlJitter.fractionFor(writtenAtMillis))
     }
 
     private fun requireValidMaxAge(maxAge: Duration?) {

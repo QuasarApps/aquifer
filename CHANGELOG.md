@@ -7,6 +7,15 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — TTL jitter
+
+- `ttlJitter` (0..1) on `freshness { }`: each entry's effective time-to-live is
+  deterministically shortened by a factor derived from its own write timestamp, spreading
+  the expiries of entries fetched together so they don't all revalidate at once — the
+  request-stampede mirror of retry jitter. Shorten-only (`timeToLive` stays the hard upper
+  bound), stable per entry (no fresh/stale flickering, same verdict across restarts), and
+  per-call `maxAge` overrides are never jittered. 0 (default) disables it.
+
 ### Added — negative caching
 
 - `negativeCache { }` on the builder: terminal fetch failures are remembered per key for
