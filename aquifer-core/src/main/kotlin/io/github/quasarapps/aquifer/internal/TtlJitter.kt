@@ -9,8 +9,9 @@ package io.github.quasarapps.aquifer.internal
  * those expiries — the key's hash keeps same-millisecond co-writes apart (bursty commits
  * land on the same tick routinely), and because the factor is a pure function of the two,
  * the same entry always gets the same horizon: no flickering between fresh and stale
- * across checks, and the same verdict across process restarts (the timestamp persists, and
- * the cache already requires keys with stable value-based hashCodes).
+ * across checks. The verdict also survives process restarts *when the key's `hashCode` is
+ * value-based and stable* (data classes, strings, primitives — the norm); an
+ * identity-hashed key re-rolls its factor on restart, which merely re-spreads its expiry.
  *
  * Like retry jitter, this only ever *shortens*: the configured `timeToLive` remains the
  * hard upper bound on freshness.

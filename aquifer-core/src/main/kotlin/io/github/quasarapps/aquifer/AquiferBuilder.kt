@@ -204,7 +204,9 @@ public class FreshnessConfig internal constructor() {
      * together so they don't all revalidate at once — the request-stampede mirror of retry
      * jitter. Each entry's factor derives from its key and its write timestamp (so
      * same-millisecond bursts still spread): stable across checks (an entry never flickers
-     * between fresh and stale) and across restarts.
+     * between fresh and stale), and across restarts when the key's `hashCode` is
+     * value-based and stable — data classes, strings, primitives; an identity-hashed key
+     * re-rolls its factor on restart, which merely re-spreads its expiry.
      * [timeToLive] stays the hard upper bound; an entry's effective TTL falls in
      * `(timeToLive × (1 − ttlJitter), timeToLive]` — the lower bound is exclusive because
      * the per-entry fraction is drawn from `[0, 1)`. Per-call `maxAge` overrides are never
