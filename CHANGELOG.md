@@ -7,6 +7,19 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — negative caching
+
+- `negativeCache { }` on the builder: terminal fetch failures are remembered per key for
+  `timeToLive`, during which strategy-driven refetches (`CacheFirst`, `StaleWhileRevalidate`,
+  `NetworkFirst`, `revalidateActive`, new stream subscriptions) are suppressed — reads serve
+  the cached value when one exists (stale-if-error without re-asking the network) and
+  otherwise fail fast with the remembered error. `NetworkOnly`/`fresh()` deliberately bypass
+  the memory; success, `put`, and `invalidate` clear it. Disabled unless configured.
+- Backoff memory: consecutive failures (no intervening success or mutation) stretch the
+  window by `backoffMultiplier`, capped at `maxTimeToLive` — window expiry re-allows
+  fetching but never resets the streak.
+- New `AquiferEvents.onFetchSuppressed(key, error, remaining)` reports each suppressed read.
+
 ### Added — conditional fetching (ETag / Last-Modified)
 
 - `conditionalFetcher { key, validator -> FetchResult }` on the builder: the fetcher

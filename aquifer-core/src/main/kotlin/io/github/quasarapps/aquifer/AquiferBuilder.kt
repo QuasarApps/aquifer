@@ -1,5 +1,6 @@
 package io.github.quasarapps.aquifer
 
+import io.github.quasarapps.aquifer.internal.NegativeCachePolicy
 import io.github.quasarapps.aquifer.internal.RealAquifer
 import io.github.quasarapps.aquifer.internal.RetryPolicy
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +27,7 @@ public fun <K : Any, V : Any> aquifer(configure: AquiferBuilder<K, V>.() -> Unit
 
 /** Configuration collected by the [aquifer] builder. */
 @AquiferDsl
+@Suppress("TooManyFunctions") // A DSL surface: exactly one function per builder knob.
 public class AquiferBuilder<K : Any, V : Any> internal constructor() {
 
     private var fetcher: (suspend (key: K) -> V)? = null
@@ -33,6 +35,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     private val memoryCache = MemoryCacheConfig()
     private val freshness = FreshnessConfig()
     private val retry = RetryConfig()
+    private val negativeCache = NegativeCacheConfig()
+    private var negativeCacheEnabled = false
     private var clock: WallClock = WallClock.SYSTEM
     private var scope: CoroutineScope? = null
     private var persistence: SourceOfTruth<K, V>? = null
@@ -83,6 +87,16 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         retry.configure()
     }
 
+    /**
+     * Enables negative caching — failed fetches are remembered per key for a short window,
+     * during which strategy-driven refetches are suppressed; see [NegativeCacheConfig].
+     * Disabled unless this is called.
+     */
+    public fun negativeCache(configure: NegativeCacheConfig.() -> Unit) {
+        negativeCacheEnabled = true
+        negativeCache.configure()
+    }
+
     /** Registers an observer of store activity for logging and metrics; see [AquiferEvents]. */
     public fun events(listener: AquiferEvents<K>) {
         events = listener
@@ -128,9 +142,19 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             plain != null -> { key, _ -> FetchResult.Fresh(plain(key)) }
             else -> throw IllegalArgumentException("aquifer { } requires a fetcher { }")
         }
+        val negative = if (negativeCacheEnabled) {
+            require(negativeCache.maxTimeToLive >= negativeCache.timeToLive) {
+                "negativeCache.maxTimeToLive (${negativeCache.maxTimeToLive}) must be >= " +
+                    "timeToLive (${negativeCache.timeToLive})"
+            }
+            NegativeCachePolicy(negativeCache)
+        } else {
+            null
+        }
         return RealAquifer(
             fetcher = fetch,
             conditional = conditional != null,
+            negativeCache = negative,
             timeToLive = freshness.timeToLive,
             maxEntries = memoryCache.maxEntries,
             clock = clock,

@@ -64,8 +64,12 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   re-downloading. `aquifer-okhttp` ships `okHttpConditionalFetcher` for automatic
   `ETag`/`If-None-Match` + `Last-Modified`/`If-Modified-Since` wiring. Plain fetchers keep
   their exact pre-existing path. *(L)*
-- [ ] **Negative caching** — remember fetch failures per key with their own short TTL and
-  backoff memory, so a failing endpoint isn't hammered by every new subscriber. *(M)*
+- [x] **Negative caching** — shipped as opt-in `negativeCache { timeToLive,
+  backoffMultiplier, maxTimeToLive }`: terminal failures suppress strategy-driven refetches
+  for a per-key window (stale values still served, valueless reads fail fast with the
+  remembered error), `NetworkOnly` bypasses, success/mutation clears, and the
+  consecutive-failure streak — which survives window expiry — stretches the window.
+  Suppressions are observable via `onFetchSuppressed`. *(M)*
 - [ ] **TTL jitter** — optional fuzz on expiry so entries fetched together don't all go
   stale together (the request-stampede mirror of retry jitter). *(S)*
 - [ ] **`prefetch(key)`** — fire-and-forget warmup honoring freshness and dedup; trivial

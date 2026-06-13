@@ -36,6 +36,14 @@ public interface AquiferEvents<K : Any> {
     public fun onFetchFailed(key: K, error: Throwable, attempts: Int) {}
 
     /**
+     * A strategy-driven fetch of [key] was suppressed by the negative cache: a recent
+     * failure ([error]) is still inside its suppression window, with [remaining] left.
+     * Reported once per suppressed read, so a hot screen may report it repeatedly.
+     * Only emitted when [AquiferBuilder.negativeCache] is configured.
+     */
+    public fun onFetchSuppressed(key: K, error: Throwable, remaining: Duration) {}
+
+    /**
      * The best-effort write-through to the [SourceOfTruth] failed after a successful fetch
      * of [key]. The fetched value was still served and cached in memory; only persistence
      * is out of date.
