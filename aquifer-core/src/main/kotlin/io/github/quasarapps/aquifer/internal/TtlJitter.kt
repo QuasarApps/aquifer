@@ -5,10 +5,12 @@ package io.github.quasarapps.aquifer.internal
  *
  * Entries fetched together (a list screen warming 50 keys in one frame) would otherwise go
  * stale together and stampede the backend with 50 simultaneous revalidations. Scaling each
- * entry's effective TTL by a factor derived *from its own write timestamp* spreads those
- * expiries — and because the factor is a pure function of the timestamp, the same entry
- * always gets the same horizon: no flickering between fresh and stale across checks, and
- * the same verdict even across process restarts (the timestamp is what persists).
+ * entry's effective TTL by a factor derived from *its key and its write timestamp* spreads
+ * those expiries — the key's hash keeps same-millisecond co-writes apart (bursty commits
+ * land on the same tick routinely), and because the factor is a pure function of the two,
+ * the same entry always gets the same horizon: no flickering between fresh and stale
+ * across checks, and the same verdict across process restarts (the timestamp persists, and
+ * the cache already requires keys with stable value-based hashCodes).
  *
  * Like retry jitter, this only ever *shortens*: the configured `timeToLive` remains the
  * hard upper bound on freshness.
@@ -25,10 +27,13 @@ internal object TtlJitter {
     private const val SHIFT_3 = 31
     private const val FRACTION_BITS = 53
     private const val FRACTION_SHIFT = 64 - FRACTION_BITS
+    private const val KEY_HASH_SHIFT = 32
 
-    /** Uniform fraction in `[0, 1)` derived deterministically from [seed]. */
-    fun fractionFor(seed: Long): Double {
-        var z = seed + MIX_1
+    /** Uniform fraction in `[0, 1)` derived deterministically from an entry's identity. */
+    fun fractionFor(writtenAtMillis: Long, keyHash: Int): Double {
+        // The hash rides the high bits so millisecond increments in the low bits can't
+        // mask it; the finalizer below avalanches both into every output bit.
+        var z = (writtenAtMillis xor (keyHash.toLong() shl KEY_HASH_SHIFT)) + MIX_1
         z = (z xor (z ushr SHIFT_1)) * MIX_2
         z = (z xor (z ushr SHIFT_2)) * MIX_3
         z = z xor (z ushr SHIFT_3)

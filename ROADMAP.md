@@ -72,8 +72,9 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   Suppressions are observable via `onFetchSuppressed`. *(M)*
 - [x] **TTL jitter** — shipped as `freshness { ttlJitter = 0.1 }`: shorten-only (the
   configured TTL stays the hard cap, mirroring retry jitter's rule), with each entry's
-  factor derived deterministically from its write timestamp — stable across checks and
-  restarts, no fresh/stale flicker, nothing extra persisted. `maxAge` overrides stay
+  factor derived deterministically from its key and write timestamp — same-tick bursts
+  spread, stable across checks and restarts, no fresh/stale flicker, nothing extra
+  persisted. `maxAge` overrides stay
   exact. *(S)*
 - [ ] **`prefetch(key)`** — fire-and-forget warmup honoring freshness and dedup; trivial
   API, large perceived-performance payoff for predictable navigation. *(S)*

@@ -13,17 +13,30 @@ class TtlJitterTest {
 
     @Test
     fun `fractions are uniform-ish, stable, and inside the unit interval`() {
-        val seeds = (0L..1000L).map { it * 1000 } // consecutive write timestamps, 1s apart
-        val fractions = seeds.map(TtlJitter::fractionFor)
+        val keyHash = "k".hashCode()
+        val timestamps = (0L..1000L).toList() // truly consecutive milliseconds
+        val fractions = timestamps.map { TtlJitter.fractionFor(it, keyHash) }
 
         fractions.forEach { fraction ->
             assertTrue(fraction >= 0.0 && fraction < 1.0, "fraction $fraction outside [0, 1)")
         }
-        // Determinism: the same timestamp always yields the same factor.
-        seeds.forEach { assertEquals(TtlJitter.fractionFor(it), TtlJitter.fractionFor(it)) }
-        // Spread: consecutive timestamps must decorrelate, or co-fetched entries would
-        // still expire together. A quarter of the unit interval is a generous floor.
+        // Determinism: the same entry identity always yields the same factor.
+        timestamps.forEach {
+            assertEquals(TtlJitter.fractionFor(it, keyHash), TtlJitter.fractionFor(it, keyHash))
+        }
+        // Spread: consecutive-millisecond writes must decorrelate, or co-fetched entries
+        // would still expire together. A quarter of the unit interval is a generous floor.
         assertTrue(fractions.max() - fractions.min() > 0.25, "fractions barely spread")
+    }
+
+    @Test
+    fun `same-millisecond writes of different keys still spread`() {
+        // A bursty commit lands many keys on one clock tick — the exact stampede this
+        // feature exists to prevent, so the key must contribute to the factor.
+        val tick = 1_718_000_000_000
+        val fractions = (0..100).map { TtlJitter.fractionFor(tick, "key-$it".hashCode()) }
+
+        assertTrue(fractions.max() - fractions.min() > 0.25, "same-tick fractions barely spread")
     }
 
     @Test

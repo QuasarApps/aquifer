@@ -232,7 +232,7 @@ internal class RealAquifer<K : Any, V : Any>(
                     newestSequence = event.sequence
                     last = event.value
                     downstream.emit(
-                        DataState.Content(event.value, event.origin, isExpired(event.writtenAtMillis, maxAge)),
+                        DataState.Content(event.value, event.origin, isExpired(key, event.writtenAtMillis, maxAge)),
                     )
                 }
 
@@ -280,7 +280,7 @@ internal class RealAquifer<K : Any, V : Any>(
         requireValidMaxAge(maxAge)
         // NetworkOnly bypasses cached reads entirely: no memory lookup, no persistence I/O.
         val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
-        val usable = entry != null && !isExpired(entry.writtenAtMillis, maxAge)
+        val usable = entry != null && !isExpired(key, entry.writtenAtMillis, maxAge)
         return when (freshness) {
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
 
@@ -375,7 +375,7 @@ internal class RealAquifer<K : Any, V : Any>(
         checkOpen()
         for (key in activeKeys.keys) {
             val entry = load(key)?.entry
-            if ((entry == null || isExpired(entry.writtenAtMillis)) && suppression(key) == null) refresh(key)
+            if ((entry == null || isExpired(key, entry.writtenAtMillis)) && suppression(key) == null) refresh(key)
         }
     }
 
@@ -469,7 +469,7 @@ internal class RealAquifer<K : Any, V : Any>(
         // too early for us to see it. Note it now (before refresh, so a fetch we start
         // ourselves is not mistaken for a pre-existing one) and replay it below.
         val joinedInFlightFetch = inFlight.containsKey(key)
-        val needsValue = entry == null || isExpired(entry.writtenAtMillis, maxAge)
+        val needsValue = entry == null || isExpired(key, entry.writtenAtMillis, maxAge)
         val wantsFetch = wantsFetch(freshness, needsValue)
         // NetworkOnly bypasses the negative cache (explicit network demand); the other
         // fetch-capable strategies stand down while a recent failure is remembered.
@@ -697,18 +697,18 @@ internal class RealAquifer<K : Any, V : Any>(
      * Staleness against [maxAge] when given (per-call override, never jittered — it is the
      * caller's explicit bar), else the store-wide TTL with the entry's deterministic jitter.
      */
-    private fun isExpired(writtenAtMillis: Long, maxAge: Duration? = null): Boolean {
-        val horizon = maxAge ?: jitteredTimeToLive(writtenAtMillis)
+    private fun isExpired(key: K, writtenAtMillis: Long, maxAge: Duration? = null): Boolean {
+        val horizon = maxAge ?: jitteredTimeToLive(key, writtenAtMillis)
         // Duration arithmetic, not inWholeMilliseconds: a sub-millisecond horizon must not
         // truncate to zero and declare everything instantly stale. INFINITE compares false
         // against any finite elapsed time, giving "always fresh" naturally.
         return (clock.nowMillis() - writtenAtMillis).milliseconds >= horizon
     }
 
-    /** This entry's effective TTL: scaled by a stable factor of its own write timestamp. */
-    private fun jitteredTimeToLive(writtenAtMillis: Long): Duration {
+    /** This entry's effective TTL: scaled by a stable factor of its key and write time. */
+    private fun jitteredTimeToLive(key: K, writtenAtMillis: Long): Duration {
         if (ttlJitter == 0.0 || timeToLive == Duration.INFINITE) return timeToLive
-        return timeToLive * (1.0 - ttlJitter * TtlJitter.fractionFor(writtenAtMillis))
+        return timeToLive * (1.0 - ttlJitter * TtlJitter.fractionFor(writtenAtMillis, key.hashCode()))
     }
 
     private fun requireValidMaxAge(maxAge: Duration?) {
