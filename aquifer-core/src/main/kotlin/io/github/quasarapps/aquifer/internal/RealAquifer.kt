@@ -52,7 +52,7 @@ internal class RealAquifer<K : Any, V : Any>(
     /** Failure-memory parameters; `null` disables negative caching entirely. */
     private val negativeCache: NegativeCachePolicy? = null,
     private val timeToLive: Duration,
-    /** Fraction (0..1) deterministically shortening each entry's effective TTL; 0 = off. */
+    /** Fraction in `[0, 1]` deterministically shortening each entry's effective TTL; 0 = off. */
     private val ttlJitter: Double = 0.0,
     maxEntries: Int,
     private val clock: WallClock,

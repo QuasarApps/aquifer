@@ -9,7 +9,7 @@ versions may contain breaking changes.
 
 ### Added — TTL jitter
 
-- `ttlJitter` (0..1) on `freshness { }`: each entry's effective time-to-live is
+- `ttlJitter` (in `[0, 1]`) on `freshness { }`: each entry's effective time-to-live is
   deterministically shortened by a factor derived from its own write timestamp, spreading
   the expiries of entries fetched together so they don't all revalidate at once — the
   request-stampede mirror of retry jitter. Shorten-only (`timeToLive` stays the hard upper

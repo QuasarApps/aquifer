@@ -68,7 +68,7 @@ class TtlJitterTest {
     }
 
     @Test
-    fun `a stream's staleness verdict is stable across emissions`() = runTest {
+    fun `the staleness verdict is stable across repeated reads`() = runTest {
         val clock = FakeClock()
         val store = aquifer<String, Int> {
             scope(backgroundScope)
