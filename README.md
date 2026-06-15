@@ -147,6 +147,26 @@ fun onListItemVisible(id: UserId) {
 }
 ```
 
+### Many keys, one backend call
+
+A list of 50 items shouldn't mean 50 round-trips. Give the store a `batchFetcher` and `getAll`
+collapses the keys that need loading into a single call:
+
+```kotlin
+val users = aquifer<UserId, User> {
+    batchFetcher { ids -> api.fetchUsers(ids) }   // POST /users?ids=…  ->  Map<UserId, User>
+    freshness { timeToLive = 5.minutes }
+}
+
+val loaded: Map<UserId, User> = users.getAll(visibleIds)   // fresh keys served from cache; the rest in one call
+```
+
+`getAll` returns the **resolved subset** — a key the backend omits, or whose fetch fails, is
+simply absent (its error still reaches `AquiferEvents`), so one bad key never sinks the list.
+Every per-key guarantee — single-flight dedup, mutation fencing, negative caching,
+persistence — holds exactly as for `get`; batching is purely a transport optimization, and an
+individual `get(id)` over a `batchFetcher` is just a batch of one.
+
 ### Surviving process death
 
 Add a `SourceOfTruth` and cached data outlives the process: cold starts render from disk

@@ -81,9 +81,12 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   (a fresh entry triggers nothing), shares the single-flight fetch with concurrent
   reads, stands down under negative caching, and never throws (failures surface through
   events). *(S)*
-- [ ] **Batched fetching** — `getAll(keys)`/`streamMany(keys)` with an optional coalescing
-  window mapping N keys to one backend call (DataLoader-style); solves the N+1 pattern for
-  list screens. *(L)*
+- [~] **Batched fetching** (RFC #29) — Phase 1 shipped: a `batchFetcher { keys -> Map }`
+  builder option and `getAll(keys, freshness)` that collapses N keys into one backend call,
+  reusing the per-key machinery (single-flight, fencing, negative caching, persistence,
+  events) so batching is a pure transport optimization; single `get`/`stream`/`prefetch` use
+  it as a batch of one. Phase 2 (own PR): the coalescing window that auto-batches individual
+  fetches, plus `streamMany(keys)` built on it. *(L)*
 - [ ] **#12 — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
   commit throughput against a real file store; implement per-key lock striping only if the
   numbers justify it (constraints documented in the issue). *(M–L)*

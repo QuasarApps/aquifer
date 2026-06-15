@@ -7,6 +7,26 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — batched fetching (phase 1, RFC #29)
+
+- `batchFetcher { keys: Set<K> -> Map<K, V> }` builder option: resolve many keys in one
+  backend call (the N+1 cure for list screens). Mutually exclusive with
+  `fetcher`/`conditionalFetcher` (configure exactly one). A key absent from the returned map
+  fails only that key (`BatchKeyMissingException`); a throwing batch fetcher fails the whole
+  batch. Single `get`/`stream`/`prefetch` use it as a batch of one.
+- `Aquifer.getAll(keys, freshness = CacheFirst): Map<K, V>`: resolves each key per its
+  freshness, gathers the keys that need fetching into one `batchFetcher` call (joining any
+  in-flight single fetch), and returns the **resolved subset** — a per-key failure is omitted
+  rather than thrown, so one bad key never sinks the screen (its error still reaches
+  `AquiferEvents`). Stale-if-error falls back to cached values. Without a `batchFetcher`,
+  keys are fetched individually (still single-flight-deduped). Every per-key guarantee
+  (fencing, negative caching, persistence, events) is unchanged — batching is purely a
+  fetch-transport optimization.
+- Retry scope: the store `retry` policy wraps each single-key fetch (including a `get`'s
+  batch-of-one over a `batchFetcher`) but not the multi-key call `getAll` issues — put retry
+  inside the `batchFetcher` if needed. Whole-batch retry, the coalescing window that
+  auto-batches individual fetches, and `streamMany(keys)` are Phase 2 (a follow-up PR).
+
 ### Added — prefetch
 
 - `Aquifer.prefetch(key, freshness = CacheFirst)`: fire-and-forget cache warmup for

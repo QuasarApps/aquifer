@@ -71,6 +71,13 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
 
     override fun prefetch(key: K, freshness: Freshness) = Unit // previews never fetch
 
+    override suspend fun getAll(keys: Set<K>, freshness: Freshness): Map<K, V> {
+        val seeded = snapshots.value
+        return buildMap(keys.size) {
+            for (key in keys) seeded[key]?.let { put(key, it) } // seeded subset; never fetches
+        }
+    }
+
     override suspend fun put(key: K, value: V) {
         snapshots.update { it + (key to value) }
     }

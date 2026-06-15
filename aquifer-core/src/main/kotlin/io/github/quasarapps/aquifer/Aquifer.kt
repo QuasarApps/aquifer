@@ -31,6 +31,10 @@ import kotlin.time.Duration
  * the originating screen is closed. Call [close] when the store as a whole is no longer
  * needed; for app-wide singletons that is typically never.
  */
+// The public contract: each function is a distinct, cohesive cache operation — not a class
+// to decompose. (read/observe: stream, get, fresh, prefetch, getAll; mutate: put, invalidate,
+// invalidateAll; revalidate: revalidateActive, revalidateOn; lifecycle: close.)
+@Suppress("TooManyFunctions")
 public interface Aquifer<K : Any, V : Any> : AutoCloseable {
 
     /**
@@ -108,6 +112,34 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * read still sees them. Calling on a closed store throws [IllegalStateException].
      */
     public fun prefetch(key: K, freshness: Freshness = Freshness.CacheFirst)
+
+    /**
+     * Resolves many [keys] at once, collapsing their network fetches into a single backend
+     * call when the store has a [batch fetcher][AquiferBuilder.batchFetcher] — the cure for
+     * the N+1 fetch on list screens. Each key is resolved per [freshness] exactly as [get]
+     * decides whether to fetch; the keys that need fetching are gathered into one call (joining
+     * any already in-flight single fetch for a key).
+     *
+     * Returns the **resolved subset**: a `Map` of the keys that produced a value, in iteration
+     * order of [keys]. Unlike [get], a per-key failure does not throw — a key whose fetch fails
+     * with no usable cached fallback (the batch omitted it, or the call errored) is simply
+     * absent from the result, so one bad key never sinks the screen. Per-key failures still
+     * reach [AquiferEvents]; for per-key error *states*, use [stream] on the individual keys.
+     * Being one-shot, `getAll` awaits every fetch it triggers — there is no
+     * [Freshness.StaleWhileRevalidate] background revalidation (it behaves like
+     * [Freshness.CacheFirst] for that case). Without a batch fetcher the keys are fetched
+     * individually (still single-flight-deduped). Defaults to [Freshness.CacheFirst].
+     *
+     * Retry note: the store's `retry` policy wraps each *single-key* fetch (including the
+     * batch-of-one a `get` makes over a batch fetcher), but **not** the multi-key batch call
+     * `getAll` issues — a transient transport blip drops that batch (each key falls back to
+     * its cached value or is omitted). Put retry inside your
+     * [batch fetcher][AquiferBuilder.batchFetcher] if you need it; whole-batch retry is
+     * planned (RFC #29).
+     *
+     * @throws IllegalStateException if the store is closed.
+     */
+    public suspend fun getAll(keys: Set<K>, freshness: Freshness = Freshness.CacheFirst): Map<K, V>
 
     /**
      * Writes [value] for [key] into the cache as a fresh entry and notifies active streams.
