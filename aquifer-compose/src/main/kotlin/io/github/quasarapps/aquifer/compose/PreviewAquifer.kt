@@ -35,6 +35,8 @@ import kotlin.time.Duration
 public fun <K : Any, V : Any> previewAquifer(vararg entries: Pair<K, V>): Aquifer<K, V> =
     PreviewAquifer(entries.toMap())
 
+// A faithful Aquifer implementation: one override per interface member is inherent.
+@Suppress("TooManyFunctions")
 private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> {
 
     private val snapshots = MutableStateFlow(seed)
@@ -66,6 +68,8 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
     }
 
     override suspend fun fresh(key: K): V = get(key)
+
+    override fun prefetch(key: K, freshness: Freshness) = Unit // previews never fetch
 
     override suspend fun put(key: K, value: V) {
         snapshots.update { it + (key to value) }

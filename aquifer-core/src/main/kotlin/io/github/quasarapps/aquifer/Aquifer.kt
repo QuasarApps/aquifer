@@ -94,6 +94,22 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     public suspend fun fresh(key: K): V
 
     /**
+     * Warms the cache for [key] without blocking the caller — fire-and-forget. Returns
+     * immediately; the fetch (if any) runs in the store's scope and its result lands in the
+     * cache for the next [get] or [stream], so a screen can prefetch what the user is likely
+     * to open next.
+     *
+     * Honours [freshness] exactly as [get] would for the *decision to fetch* — by default
+     * [Freshness.CacheFirst], so a still-fresh entry triggers no fetch at all — and shares a
+     * single in-flight fetch with any concurrent [get], [stream], or [prefetch] of the same
+     * key (no duplicate request). A fetch suppressed by negative caching is not started.
+     * [Freshness.CacheOnly] is a no-op (it never fetches). Failures are not thrown to the
+     * caller; they surface through [AquiferEvents] like any other fetch, and a later real
+     * read still sees them. Calling on a closed store throws [IllegalStateException].
+     */
+    public fun prefetch(key: K, freshness: Freshness = Freshness.CacheFirst)
+
+    /**
      * Writes [value] for [key] into the cache as a fresh entry and notifies active streams.
      *
      * Use this to apply local edits or server push payloads. The write is local only; pushing

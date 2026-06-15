@@ -7,6 +7,18 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — prefetch
+
+- `Aquifer.prefetch(key, freshness = CacheFirst)`: fire-and-forget cache warmup for
+  predictable navigation. Returns immediately; the fetch runs in the store's scope and its
+  result lands in the cache for the next `get`/`stream`. Honours the freshness fetch
+  decision (a still-fresh entry triggers no fetch), shares a single in-flight fetch with any
+  concurrent `get`/`stream`/`prefetch` of the same key, stands down while a key is
+  negative-cached (except `NetworkOnly`, the explicit-demand strategy), is a no-op for
+  `CacheOnly`, and never throws *fetch failures* to the caller — they surface through
+  `AquiferEvents` (calling on a closed store still throws `IllegalStateException`, like every
+  other member).
+
 ### Added — TTL jitter
 
 - `ttlJitter` (in `[0, 1]`) on `freshness { }`: each entry's effective time-to-live is
