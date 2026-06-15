@@ -194,7 +194,9 @@ public final class io/github/quasarapps/aquifer/Freshness$StaleWhileRevalidate :
 
 public final class io/github/quasarapps/aquifer/FreshnessConfig {
 	public final fun getTimeToLive-UwyO8pc ()J
+	public final fun getTtlJitter ()D
 	public final fun setTimeToLive-LRDsOJo (J)V
+	public final fun setTtlJitter (D)V
 }
 
 public final class io/github/quasarapps/aquifer/MemoryCacheConfig {

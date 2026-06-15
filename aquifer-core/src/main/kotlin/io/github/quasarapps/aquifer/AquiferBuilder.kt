@@ -156,6 +156,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             conditional = conditional != null,
             negativeCache = negative,
             timeToLive = freshness.timeToLive,
+            ttlJitter = freshness.ttlJitter,
             maxEntries = memoryCache.maxEntries,
             clock = clock,
             parentScope = scope,
@@ -194,6 +195,26 @@ public class FreshnessConfig internal constructor() {
     public var timeToLive: Duration = Duration.INFINITE
         set(value) {
             require(value.isPositive()) { "timeToLive must be positive, was $value" }
+            field = value
+        }
+
+    /**
+     * Fraction in `[0, 1]` by which each entry's *effective* time-to-live is
+     * deterministically shortened, spreading the expiries of entries that were fetched
+     * together so they don't all revalidate at once — the request-stampede mirror of retry
+     * jitter. Each entry's factor derives from its key and its write timestamp (so
+     * same-millisecond bursts still spread): stable across checks (an entry never flickers
+     * between fresh and stale), and across restarts when the key's `hashCode` is
+     * value-based and stable — data classes, strings, primitives; an identity-hashed key
+     * re-rolls its factor on restart, which merely re-spreads its expiry.
+     * [timeToLive] stays the hard upper bound; an entry's effective TTL falls in
+     * `(timeToLive × (1 − ttlJitter), timeToLive]` — the lower bound is exclusive because
+     * the per-entry fraction is drawn from `[0, 1)`. Per-call `maxAge` overrides are never
+     * jittered (an explicit caller bar). 0 (the default) disables jitter.
+     */
+    public var ttlJitter: Double = 0.0
+        set(value) {
+            require(value in 0.0..1.0) { "ttlJitter must be within 0.0..1.0, was $value" }
             field = value
         }
 }
