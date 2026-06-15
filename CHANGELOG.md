@@ -15,7 +15,9 @@ versions may contain breaking changes.
   decision (a still-fresh entry triggers no fetch), shares a single in-flight fetch with any
   concurrent `get`/`stream`/`prefetch` of the same key, stands down while a key is
   negative-cached (except `NetworkOnly`, the explicit-demand strategy), is a no-op for
-  `CacheOnly`, and never throws to the caller — failures surface through `AquiferEvents`.
+  `CacheOnly`, and never throws *fetch failures* to the caller — they surface through
+  `AquiferEvents` (calling on a closed store still throws `IllegalStateException`, like every
+  other member).
 
 ### Added — TTL jitter
 
