@@ -385,28 +385,29 @@ internal class RealAquifer<K : Any, V : Any>(
         if (batch == null) {
             for (key in keys) deferreds[key] = refresh(key)
         } else {
-            // Only keys not already in flight need the shared call; the rest join theirs.
-            val fresh = keys.filterNot { inFlight.containsKey(it) }.toSet()
-            if (fresh.isNotEmpty()) {
-                // A CompletableDeferred (not a lazy async, whose await() would start it on the
-                // first slice) so the one batch call dispatches strictly after every slice is
-                // registered in `inFlight` — robust even on a multi-threaded dispatcher.
-                val batchResult = CompletableDeferred<Map<K, V>>()
-                for (key in fresh) {
-                    deferreds[key] = refreshWith(key) { _, _ ->
-                        FetchResult.Fresh(batchResult.await()[key] ?: throw BatchKeyMissingException(key))
-                    }
+            // A CompletableDeferred (not a lazy async, whose await() would start it on the
+            // first slice) so the one call dispatches strictly after every slice is registered
+            // in `inFlight` — robust even on a multi-threaded dispatcher.
+            val batchResult = CompletableDeferred<Map<K, V>>()
+            val started = LinkedHashSet<K>()
+            for (key in keys) {
+                deferreds[key] = refreshWith(key, onStarted = { started += key }) { _, _ ->
+                    FetchResult.Fresh(batchResult.await()[key] ?: throw BatchKeyMissingException(key))
                 }
-                dispatchBatch(fresh, batch, batchResult)
             }
-            for (key in keys) if (key !in fresh) deferreds[key] = refresh(key)
+            // Request exactly the keys whose slice we started; a key that joined an existing
+            // single fetch awaits that one, not batchResult, so it must not be in the call.
+            if (started.isNotEmpty()) dispatchBatch(started, batch, batchResult)
         }
         return buildMap(deferreds.size) {
             for ((key, deferred) in deferreds) {
                 try {
                     put(key, deferred.await())
                 } catch (cancellation: CancellationException) {
-                    throw cancellation
+                    // A caller-side cancellation propagates; a store-closure cancellation of the
+                    // shared fetch becomes AquiferException, matching get()/close()'s contract.
+                    coroutineContext.ensureActive()
+                    throw AquiferException("Aquifer was closed during getAll", cancellation)
                 } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
                     // This key failed (batch omitted it, or the call threw); its error already
                     // surfaced through AquiferEvents. Omit it — getAll returns the resolved set.
@@ -642,9 +643,14 @@ internal class RealAquifer<K : Any, V : Any>(
      * that awaits a shared multi-key call. Everything around the transport — single-flight
      * dedup, epoch fencing, the commit, negative-cache, persistence, and `Fetching`/`Updated`/
      * `Failed` events — is identical for both, so batching changes only the wire call.
+     *
+     * [onStarted] fires only when this call wins the registration race and starts a *new*
+     * fetch (not when it joins one already in flight) — [getAll] uses it to batch exactly the
+     * keys it actually started, never a key that joined an existing single fetch.
      */
     private fun refreshWith(
         key: K,
+        onStarted: (() -> Unit)? = null,
         transport: suspend (prior: MemoryCache.Entry<V>?, setAttempts: (Int) -> Unit) -> FetchResult<V>,
     ): Deferred<V> {
         inFlight[key]?.let { return it }
@@ -679,6 +685,7 @@ internal class RealAquifer<K : Any, V : Any>(
             pending.cancel()
             return existing
         }
+        onStarted?.invoke()
         pending.invokeOnCompletion { inFlight.remove(key, pending) }
         pending.start()
         return pending

@@ -239,4 +239,25 @@ class BatchFetchingTest {
 
         assertFailsWith<IllegalStateException> { store.getAll(setOf("a")) }
     }
+
+    @Test
+    fun `closing the store during getAll surfaces AquiferException, not bare cancellation`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            batchFetcher { keys ->
+                gate.await() // hold the batch in flight
+                keys.associateWith { it.length }
+            }
+        }
+
+        // runCatching inside the async so the result is captured, not propagated (the
+        // established pattern for the close-during-fetch contract in AquiferLifecycleTest).
+        val pending = async { runCatching { store.getAll(setOf("a", "b")) } }
+        settle() // getAll has dispatched the batch and is awaiting it
+        store.close() // cancels the store scope and the in-flight batch
+
+        // The caller gets a typed AquiferException, not a silent coroutine cancellation.
+        assertIs<AquiferException>(pending.await().exceptionOrNull())
+    }
 }
