@@ -323,9 +323,10 @@ internal class RealAquifer<K : Any, V : Any>(
             try {
                 val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
                 val needsValue = entry == null || isExpired(key, entry.writtenAtMillis)
-                // NetworkOnly bypasses the negative cache (explicit demand), like get().
-                val suppressed = freshness != Freshness.NetworkOnly && suppression(key) != null
-                if (wantsFetch(freshness, needsValue) && !suppressed) refresh(key)
+                // Same fetch decision as prime/get: suppression is consulted only when a
+                // fetch is actually wanted, so a still-fresh entry reports nothing.
+                val wantsFetch = wantsFetch(freshness, needsValue)
+                if (wantsFetch && fetchBlock(key, wantsFetch, freshness) == null) refresh(key)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
@@ -495,9 +496,7 @@ internal class RealAquifer<K : Any, V : Any>(
         val joinedInFlightFetch = inFlight.containsKey(key)
         val needsValue = entry == null || isExpired(key, entry.writtenAtMillis, maxAge)
         val wantsFetch = wantsFetch(freshness, needsValue)
-        // NetworkOnly bypasses the negative cache (explicit network demand); the other
-        // fetch-capable strategies stand down while a recent failure is remembered.
-        val block = if (wantsFetch && freshness != Freshness.NetworkOnly) suppression(key) else null
+        val block = fetchBlock(key, wantsFetch, freshness)
         if (wantsFetch && block == null) refresh(key)
         when {
             joinedInFlightFetch -> emit(Event.Fetching(key))
@@ -516,6 +515,17 @@ internal class RealAquifer<K : Any, V : Any>(
         Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> needsValue
         Freshness.NetworkFirst, Freshness.NetworkOnly -> true
     }
+
+    /**
+     * The negative-cache entry that holds back an otherwise-wanted fetch of [key], or `null`
+     * when a fetch may proceed. Consults (and reports through [AquiferEvents.onFetchSuppressed])
+     * the suppression memory *only* when [wantsFetch] is true and the strategy isn't
+     * [Freshness.NetworkOnly] — the explicit-demand carve-out — so no-op decision paths never
+     * spuriously report a suppression. The single home for this gating, shared by [prime] and
+     * [prefetch].
+     */
+    private fun fetchBlock(key: K, wantsFetch: Boolean, freshness: Freshness): NegativeEntry? =
+        if (wantsFetch && freshness != Freshness.NetworkOnly) suppression(key) else null
 
     /**
      * Returns the in-flight fetch for [key], starting one when none is running. The fetch runs

@@ -101,8 +101,8 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      *
      * Honours [freshness] exactly as [get] would for the *decision to fetch* — by default
      * [Freshness.CacheFirst], so a still-fresh entry triggers no fetch at all — and shares a
-     * single in-flight fetch with any concurrent [get]/[stream]/`prefetch` of the same key
-     * (no duplicate request). A fetch suppressed by negative caching is not started.
+     * single in-flight fetch with any concurrent [get], [stream], or [prefetch] of the same
+     * key (no duplicate request). A fetch suppressed by negative caching is not started.
      * [Freshness.CacheOnly] is a no-op (it never fetches). Failures are not thrown to the
      * caller; they surface through [AquiferEvents] like any other fetch, and a later real
      * read still sees them. Calling on a closed store throws [IllegalStateException].

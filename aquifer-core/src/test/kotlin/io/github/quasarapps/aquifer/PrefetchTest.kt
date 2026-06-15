@@ -45,6 +45,29 @@ class PrefetchTest {
     }
 
     @Test
+    fun `prefetch of a fresh entry reports no suppression`() = runTest {
+        val suppressions = mutableListOf<String>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            fetcher { 1 }
+            freshness { timeToLive = 10.minutes }
+            negativeCache { timeToLive = 30.seconds }
+            events(object : AquiferEvents<String> {
+                override fun onFetchSuppressed(key: String, error: Throwable, remaining: kotlin.time.Duration) {
+                    suppressions += key
+                }
+            })
+        }
+        store.put("k", 100) // fresh; a prefetch wants no fetch
+
+        store.prefetch("k")
+        settle()
+
+        // No fetch was wanted, so the negative cache must not even be consulted.
+        assertEquals(emptyList(), suppressions)
+    }
+
+    @Test
     fun `prefetch refetches a stale entry`() = runTest {
         val clock = FakeClock()
         var calls = 0
