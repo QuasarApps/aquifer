@@ -76,8 +76,11 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   spread, no fresh/stale flicker, nothing extra persisted, and restart-stable for keys
   with value-based `hashCode`s. `maxAge` overrides stay
   exact. *(S)*
-- [ ] **`prefetch(key)`** — fire-and-forget warmup honoring freshness and dedup; trivial
-  API, large perceived-performance payoff for predictable navigation. *(S)*
+- [x] **`prefetch(key)`** — shipped as `fun prefetch(key, freshness = CacheFirst)`:
+  fire-and-forget warmup that returns immediately, honours the freshness fetch decision
+  (a fresh entry triggers nothing), shares the single-flight fetch with concurrent
+  reads, stands down under negative caching, and never throws (failures surface through
+  events). *(S)*
 - [ ] **Batched fetching** — `getAll(keys)`/`streamMany(keys)` with an optional coalescing
   window mapping N keys to one backend call (DataLoader-style); solves the N+1 pattern for
   list screens. *(L)*

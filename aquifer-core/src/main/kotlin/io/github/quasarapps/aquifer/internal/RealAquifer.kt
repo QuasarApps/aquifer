@@ -313,6 +313,30 @@ internal class RealAquifer<K : Any, V : Any>(
 
     override suspend fun fresh(key: K): V = get(key, Freshness.NetworkOnly)
 
+    override fun prefetch(key: K, freshness: Freshness) {
+        checkOpen()
+        if (freshness == Freshness.CacheOnly) return // never fetches; nothing to warm
+        // Fire-and-forget in the store's scope: returns immediately, and the warmed value
+        // lands in the cache through refresh()'s normal commit. Mirrors get()'s fetch
+        // decision (freshness + negative caching) but triggers rather than awaits.
+        scope.launch {
+            try {
+                val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
+                val needsValue = entry == null || isExpired(key, entry.writtenAtMillis)
+                // NetworkOnly bypasses the negative cache (explicit demand), like get().
+                val suppressed = freshness != Freshness.NetworkOnly && suppression(key) != null
+                if (wantsFetch(freshness, needsValue) && !suppressed) refresh(key)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
+                // A prefetch is best-effort: a failing cache read here must not escape the
+                // store scope (an uncaught throw would crash the host). The fetcher's own
+                // failures already surface through AquiferEvents inside refresh(), and the
+                // next real read re-hits the same read path and reports it for real.
+            }
+        }
+    }
+
     override suspend fun put(key: K, value: V) {
         checkOpen()
         val now = clock.nowMillis()

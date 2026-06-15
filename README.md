@@ -139,6 +139,14 @@ val any = users.get(id, maxAge = Duration.INFINITE)   // serve anything cached, 
 users.stream(id, maxAge = 1.minutes)                  // this stream's staleness bar, no one else's
 ```
 
+Warm what the user is about to open — fire-and-forget, no coroutine needed at the call site:
+
+```kotlin
+fun onListItemVisible(id: UserId) {
+    users.prefetch(id)   // returns instantly; skips the fetch if already fresh, dedups with reads
+}
+```
+
 ### Surviving process death
 
 Add a `SourceOfTruth` and cached data outlives the process: cold starts render from disk
