@@ -13,6 +13,7 @@ import io.github.quasarapps.aquifer.PersistedEntry
 import io.github.quasarapps.aquifer.SourceOfTruth
 import io.github.quasarapps.aquifer.WallClock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -386,15 +387,18 @@ internal class RealAquifer<K : Any, V : Any>(
         } else {
             // Only keys not already in flight need the shared call; the rest join theirs.
             val fresh = keys.filterNot { inFlight.containsKey(it) }.toSet()
-            val batchCall: Deferred<Map<K, V>>? =
-                if (fresh.isEmpty()) null else scope.async(start = CoroutineStart.LAZY) { batch(fresh) }
-            for (key in fresh) {
-                deferreds[key] = refreshWith(key) { _, _ ->
-                    FetchResult.Fresh(batchCall!!.await()[key] ?: throw BatchKeyMissingException(key))
+            if (fresh.isNotEmpty()) {
+                // A CompletableDeferred (not a lazy async, whose await() would start it on the
+                // first slice) so the one batch call dispatches strictly after every slice is
+                // registered in `inFlight` — robust even on a multi-threaded dispatcher.
+                val batchResult = CompletableDeferred<Map<K, V>>()
+                for (key in fresh) {
+                    deferreds[key] = refreshWith(key) { _, _ ->
+                        FetchResult.Fresh(batchResult.await()[key] ?: throw BatchKeyMissingException(key))
+                    }
                 }
+                dispatchBatch(fresh, batch, batchResult)
             }
-            // Start the shared call only once every slice is registered to await it.
-            batchCall?.start()
             for (key in keys) if (key !in fresh) deferreds[key] = refresh(key)
         }
         return buildMap(deferreds.size) {
@@ -407,6 +411,29 @@ internal class RealAquifer<K : Any, V : Any>(
                     // This key failed (batch omitted it, or the call threw); its error already
                     // surfaced through AquiferEvents. Omit it — getAll returns the resolved set.
                 }
+            }
+        }
+    }
+
+    /**
+     * Runs the one shared batch call for [keys] and fans its outcome into [batchResult], which
+     * every per-key slice awaits. A failure completes [batchResult] exceptionally so each slice
+     * reports it through [failFetch]. The call is *not* wrapped in the retry policy in this
+     * release (see [getAll]); whole-batch retry is the next step (RFC #29).
+     */
+    private fun dispatchBatch(
+        keys: Set<K>,
+        batch: suspend (Set<K>) -> Map<K, V>,
+        batchResult: CompletableDeferred<Map<K, V>>,
+    ) {
+        scope.launch {
+            try {
+                batchResult.complete(batch(keys))
+            } catch (cancellation: CancellationException) {
+                batchResult.cancel(cancellation)
+                throw cancellation
+            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+                batchResult.completeExceptionally(failure)
             }
         }
     }

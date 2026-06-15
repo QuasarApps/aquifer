@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
 /** Batched fetching: `batchFetcher` + `getAll` collapse N keys into one backend call. */
@@ -191,6 +192,31 @@ class BatchFetchingTest {
 
         assertEquals(emptyMap(), store.getAll(emptySet()))
         assertEquals(emptyList(), batches)
+    }
+
+    @Test
+    fun `the retry policy wraps a single fetch but not the multi-key batch call`() = runTest {
+        var singleAttempts = 0
+        var batchAttempts = 0
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            retry {
+                maxAttempts = 3
+                initialDelay = 1.milliseconds
+            }
+            batchFetcher { keys ->
+                if (keys.size == 1) singleAttempts++ else batchAttempts++
+                throw IOException("down")
+            }
+        }
+
+        // A single get is a batch of one: the retry policy applies (3 attempts).
+        assertFailsWith<IOException> { store.get("a") }
+        assertEquals(3, singleAttempts)
+
+        // The multi-key batch call is not retried in this release: one attempt, all keys drop.
+        assertEquals(emptyMap(), store.getAll(setOf("x", "y")))
+        assertEquals(1, batchAttempts)
     }
 
     @Test

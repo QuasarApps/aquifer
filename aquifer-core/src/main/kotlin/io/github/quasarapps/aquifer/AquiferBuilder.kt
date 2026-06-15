@@ -87,6 +87,10 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * Configure exactly one of [fetcher], [conditionalFetcher], or [batchFetcher]. Every other
      * guarantee (single-flight dedup, fencing, negative caching, persistence, events) applies
      * per key, unchanged — batching is purely a fetch-transport optimization.
+     *
+     * The store's [retry] policy is **not** applied around the multi-key call [Aquifer.getAll]
+     * makes (only around single-key fetches, including the batch of one a `get` makes here);
+     * add retry inside this lambda if you need it. Whole-batch retry is planned (RFC #29).
      */
     public fun batchFetcher(fetch: suspend (keys: Set<K>) -> Map<K, V>) {
         batchFetcher = fetch
@@ -156,7 +160,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         val conditional = conditionalFetcher
         val batch = batchFetcher
         require(listOfNotNull(plain, conditional, batch).size <= 1) {
-            "Configure exactly one of fetcher { }, conditionalFetcher { }, or batchFetcher { }"
+            "Configure at most one of fetcher { }, conditionalFetcher { }, or batchFetcher { }"
         }
         val fetch: suspend (key: K, validator: String?) -> FetchResult<V> = when {
             conditional != null -> conditional
@@ -165,7 +169,9 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             batch != null -> { key, _ ->
                 FetchResult.Fresh(batch(setOf(key))[key] ?: throw BatchKeyMissingException(key))
             }
-            else -> throw IllegalArgumentException("aquifer { } requires a fetcher { }")
+            else -> throw IllegalArgumentException(
+                "aquifer { } requires a fetcher { }, conditionalFetcher { }, or batchFetcher { }",
+            )
         }
         val negative = if (negativeCacheEnabled) {
             require(negativeCache.maxTimeToLive >= negativeCache.timeToLive) {

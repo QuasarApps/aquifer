@@ -22,8 +22,10 @@ versions may contain breaking changes.
   keys are fetched individually (still single-flight-deduped). Every per-key guarantee
   (fencing, negative caching, persistence, events) is unchanged — batching is purely a
   fetch-transport optimization.
-- Phase 2 (a follow-up PR) will add the coalescing window that auto-batches individual
-  fetches, and `streamMany(keys)` built on it.
+- Retry scope: the store `retry` policy wraps each single-key fetch (including a `get`'s
+  batch-of-one over a `batchFetcher`) but not the multi-key call `getAll` issues — put retry
+  inside the `batchFetcher` if needed. Whole-batch retry, the coalescing window that
+  auto-batches individual fetches, and `streamMany(keys)` are Phase 2 (a follow-up PR).
 
 ### Added — prefetch
 

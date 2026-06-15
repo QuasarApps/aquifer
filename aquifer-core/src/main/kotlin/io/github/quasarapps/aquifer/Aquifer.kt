@@ -130,6 +130,13 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * [Freshness.CacheFirst] for that case). Without a batch fetcher the keys are fetched
      * individually (still single-flight-deduped). Defaults to [Freshness.CacheFirst].
      *
+     * Retry note: the store's `retry` policy wraps each *single-key* fetch (including the
+     * batch-of-one a `get` makes over a batch fetcher), but **not** the multi-key batch call
+     * `getAll` issues — a transient transport blip drops that batch (each key falls back to
+     * its cached value or is omitted). Put retry inside your
+     * [batch fetcher][AquiferBuilder.batchFetcher] if you need it; whole-batch retry is
+     * planned (RFC #29).
+     *
      * @throws IllegalStateException if the store is closed.
      */
     public suspend fun getAll(keys: Set<K>, freshness: Freshness = Freshness.CacheFirst): Map<K, V>
