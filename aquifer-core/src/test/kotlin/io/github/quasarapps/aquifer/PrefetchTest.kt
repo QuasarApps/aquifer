@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -45,26 +46,38 @@ class PrefetchTest {
     }
 
     @Test
-    fun `prefetch of a fresh entry reports no suppression`() = runTest {
+    fun `prefetch of a fresh entry does not consult the negative cache`() = runTest {
+        val clock = FakeClock()
         val suppressions = mutableListOf<String>()
         val store = aquifer<String, Int> {
             scope(backgroundScope)
-            fetcher { 1 }
+            clock(clock)
+            fetcher { throw IllegalStateException("boom") }
             freshness { timeToLive = 10.minutes }
-            negativeCache { timeToLive = 30.seconds }
+            negativeCache {
+                timeToLive = 30.minutes // outlives the store TTL below
+                maxTimeToLive = 30.minutes
+            }
             events(object : AquiferEvents<String> {
-                override fun onFetchSuppressed(key: String, error: Throwable, remaining: kotlin.time.Duration) {
+                override fun onFetchSuppressed(key: String, error: Throwable, remaining: Duration) {
                     suppressions += key
                 }
             })
         }
-        store.put("k", 100) // fresh; a prefetch wants no fetch
-
-        store.prefetch("k")
-        settle()
-
-        // No fetch was wanted, so the negative cache must not even be consulted.
+        store.put("k", 100) // a fresh cached entry...
+        // ...with a live suppression record alongside it: a NetworkOnly fetch fails (recording
+        // the failure) without consulting suppression or clearing the cached value.
+        assertFailsWith<IllegalStateException> { store.get("k", Freshness.NetworkOnly) }
         assertEquals(emptyList(), suppressions)
+
+        store.prefetch("k") // CacheFirst + fresh entry ⇒ no fetch wanted
+        settle()
+        assertEquals(emptyList(), suppressions, "a no-op prefetch must not consult the negative cache")
+
+        // The record really was live: once the entry goes stale, a read IS suppressed.
+        clock.advanceBy(11.minutes)
+        assertEquals(100, store.get("k")) // stale-if-error: served from cache, fetch suppressed
+        assertEquals(listOf("k"), suppressions)
     }
 
     @Test
@@ -106,6 +119,21 @@ class PrefetchTest {
 
         assertEquals(42, read.await())
         assertEquals(1, calls, "prefetch and get shared one fetch")
+    }
+
+    @Test
+    fun `prefetch with NetworkFirst fetches even when the cached entry is fresh`() = runTest {
+        var calls = 0
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            fetcher { ++calls }
+            freshness { timeToLive = 10.minutes }
+        }
+        store.put("k", 100) // fresh — but NetworkFirst always fetches (no cache read needed)
+
+        store.prefetch("k", Freshness.NetworkFirst)
+        settle()
+        assertEquals(1, calls)
     }
 
     @Test

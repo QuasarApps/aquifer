@@ -321,8 +321,14 @@ internal class RealAquifer<K : Any, V : Any>(
         // decision (freshness + negative caching) but triggers rather than awaits.
         scope.launch {
             try {
-                val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
-                val needsValue = entry == null || isExpired(key, entry.writtenAtMillis)
+                // Only the staleness-aware strategies need a cache read to decide; the
+                // always-fetch ones (NetworkFirst/NetworkOnly) skip the I/O, so a swallowed
+                // read error can't turn an always-fetch prefetch into a silent no-op.
+                val needsValue = when (freshness) {
+                    Freshness.CacheFirst, Freshness.StaleWhileRevalidate ->
+                        load(key)?.entry?.let { isExpired(key, it.writtenAtMillis) } ?: true
+                    else -> true
+                }
                 // Same fetch decision as prime/get: suppression is consulted only when a
                 // fetch is actually wanted, so a still-fresh entry reports nothing.
                 val wantsFetch = wantsFetch(freshness, needsValue)
