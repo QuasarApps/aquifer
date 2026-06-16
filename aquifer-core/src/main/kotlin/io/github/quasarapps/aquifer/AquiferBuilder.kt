@@ -89,7 +89,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * Configure exactly one of [fetcher], [conditionalFetcher], or [batchFetcher]. Every other
      * guarantee (single-flight dedup, fencing, negative caching, persistence, events) applies
      * per key, unchanged — batching is purely a fetch-transport optimization. To also
-     * auto-coalesce individual fetches, use the [coalesceWindow][batchFetcher] overload.
+     * auto-coalesce individual fetches, use the [batchFetcher] overload that takes a
+     * `coalesceWindow`.
      *
      * The store's [retry] policy wraps single-key fetches (including the batch of one a `get`
      * makes here) but **not** the multi-key call [Aquifer.getAll] issues — add retry inside

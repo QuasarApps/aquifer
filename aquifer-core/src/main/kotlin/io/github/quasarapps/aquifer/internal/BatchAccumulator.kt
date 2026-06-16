@@ -22,8 +22,9 @@ import kotlin.time.Duration
  * - A key the [fetch] omits fails only that key ([BatchKeyMissingException]); a throwing
  *   `fetch` fails every key in that batch (its callers' retry, if any, re-enqueues them).
  *
- * The mutex is held only for the O(1) enqueue/schedule bookkeeping — never across [fetch] or
- * an `await` — so a slow backend can't stall enqueuers. All scheduling runs in [scope], and a
+ * The mutex guards only the in-memory enqueue/flush bookkeeping (an O(batch) drain when a
+ * window dispatches) — never the [fetch] call or any `await` — so a slow backend can't stall
+ * enqueuers. All scheduling runs in [scope], and a
  * [load] only ever runs inside that scope (the engine calls it from the per-key fetch
  * coroutine), so closing the store cancels every awaiter rather than leaving a slot dangling.
  * Under virtual time the [window] delay is skipped while the test is idle, so a synchronous
