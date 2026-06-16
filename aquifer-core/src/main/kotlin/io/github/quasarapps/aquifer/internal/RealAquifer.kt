@@ -53,6 +53,10 @@ internal class RealAquifer<K : Any, V : Any>(
     private val conditional: Boolean,
     /** Resolves many keys in one backend call; `null` means [getAll] fetches keys individually. */
     private val batchFetcher: (suspend (keys: Set<K>) -> Map<K, V>)? = null,
+    /** Auto-coalescing window for single-key fetches; [Duration.ZERO] disables it. */
+    private val coalesceWindow: Duration = Duration.ZERO,
+    /** Dispatch a coalesced batch early once this many distinct keys accumulate. */
+    private val maxBatchSize: Int = Int.MAX_VALUE,
     /** Failure-memory parameters; `null` disables negative caching entirely. */
     private val negativeCache: NegativeCachePolicy? = null,
     private val timeToLive: Duration,
@@ -76,6 +80,17 @@ internal class RealAquifer<K : Any, V : Any>(
     private val memory = MemoryCache<K, V>(maxEntries)
     private val inFlight = ConcurrentHashMap<K, Deferred<V>>()
     private val closed = AtomicBoolean(false)
+
+    /**
+     * DataLoader-style auto-coalescing for single-key fetches, present only when a batch
+     * fetcher is configured with a positive window. `getAll` keeps its own immediate batch.
+     */
+    private val accumulator: BatchAccumulator<K, V>? =
+        if (batchFetcher != null && coalesceWindow > Duration.ZERO) {
+            BatchAccumulator(scope, coalesceWindow, maxBatchSize, batchFetcher)
+        } else {
+            null
+        }
 
     /** Reference counts of keys with active, fetch-capable stream collectors. */
     private val activeKeys = ConcurrentHashMap<K, Int>()
@@ -826,7 +841,9 @@ internal class RealAquifer<K : Any, V : Any>(
         var attempt = 1
         while (true) {
             try {
-                return fetcher(key, validator)
+                // A coalescing batch store routes single-key fetches through the accumulator
+                // (a retry re-enters the next window); everyone else calls the fetcher directly.
+                return accumulator?.let { FetchResult.Fresh(it.load(key)) } ?: fetcher(key, validator)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {

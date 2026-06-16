@@ -7,6 +7,19 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — coalescing window (batched fetching phase 2, RFC #29)
+
+- `batchFetcher(coalesceWindow, maxBatchSize) { keys -> Map }`: with a positive
+  `coalesceWindow`, individual `get`/`stream`/`prefetch` fetches that land within the window
+  of each other are auto-batched into one backend call (DataLoader-style) — unchanged call
+  sites, fewer round-trips. The batch dispatches when the window elapses or once
+  `maxBatchSize` distinct keys accumulate. The default zero window keeps each single-key
+  fetch a batch of one; `getAll` always dispatches its own keys immediately.
+- A coalesced fetch is still covered by the store `retry` policy — a transient failure
+  re-enters the next window. Same-key loads in one window share a slot; a key the fetcher
+  omits fails only that key, a throwing fetcher fails that batch.
+- Still to come (RFC #29): `streamMany(keys)`, `prefetchAll(keys)`, and whole-batch retry.
+
 ### Added — batched fetching (phase 1, RFC #29)
 
 - `batchFetcher { keys: Set<K> -> Map<K, V> }` builder option: resolve many keys in one

@@ -33,6 +33,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     private var fetcher: (suspend (key: K) -> V)? = null
     private var conditionalFetcher: (suspend (key: K, validator: String?) -> FetchResult<V>)? = null
     private var batchFetcher: (suspend (keys: Set<K>) -> Map<K, V>)? = null
+    private var coalesceWindow: Duration = Duration.ZERO
+    private var maxBatchSize: Int = Int.MAX_VALUE
     private val memoryCache = MemoryCacheConfig()
     private val freshness = FreshnessConfig()
     private val retry = RetryConfig()
@@ -88,12 +90,29 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * guarantee (single-flight dedup, fencing, negative caching, persistence, events) applies
      * per key, unchanged — batching is purely a fetch-transport optimization.
      *
-     * The store's [retry] policy is **not** applied around the multi-key call [Aquifer.getAll]
-     * makes (only around single-key fetches, including the batch of one a `get` makes here);
-     * add retry inside this lambda if you need it. Whole-batch retry is planned (RFC #29).
+     * With a positive [coalesceWindow], individual `get`/`stream`/`prefetch` fetches that fall
+     * within the window of each other are auto-batched into one [fetch] call (DataLoader-style)
+     * — unchanged call sites, fewer round-trips — dispatching when the window elapses or once
+     * [maxBatchSize] distinct keys accumulate. The default zero window keeps each single-key
+     * fetch a batch of one. [Aquifer.getAll] always dispatches its own keys immediately,
+     * regardless of the window. (Each coalesced single-key fetch is still retried by the
+     * store's [retry] policy, re-entering the next window; the multi-key call `getAll` issues
+     * is not — add retry inside this lambda if you need it. Whole-batch retry: RFC #29.)
+     *
+     * @param coalesceWindow how long to gather keys before dispatching a batch; must not be
+     *   negative. Zero (the default) disables auto-coalescing.
+     * @param maxBatchSize dispatch early once this many distinct keys accumulate; must be ≥ 1.
      */
-    public fun batchFetcher(fetch: suspend (keys: Set<K>) -> Map<K, V>) {
+    public fun batchFetcher(
+        coalesceWindow: Duration = Duration.ZERO,
+        maxBatchSize: Int = Int.MAX_VALUE,
+        fetch: suspend (keys: Set<K>) -> Map<K, V>,
+    ) {
+        require(!coalesceWindow.isNegative()) { "coalesceWindow must not be negative, was $coalesceWindow" }
+        require(maxBatchSize >= 1) { "maxBatchSize must be at least 1, was $maxBatchSize" }
         batchFetcher = fetch
+        this.coalesceWindow = coalesceWindow
+        this.maxBatchSize = maxBatchSize
     }
 
     /** Configures the in-memory cache; see [MemoryCacheConfig]. */
@@ -186,6 +205,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             fetcher = fetch,
             conditional = conditional != null,
             batchFetcher = batch,
+            coalesceWindow = coalesceWindow,
+            maxBatchSize = maxBatchSize,
             negativeCache = negative,
             timeToLive = freshness.timeToLive,
             ttlJitter = freshness.ttlJitter,
