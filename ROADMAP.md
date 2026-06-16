@@ -19,10 +19,10 @@ Everything else compounds once there's a public artifact.
 - [ ] **Publish v0.1.0 to Maven Central** — add the four secrets from
   [CONTRIBUTING](CONTRIBUTING.md), bump versions off `-SNAPSHOT`, date the CHANGELOG, push
   `v0.1.0`; the guarded release workflow does the rest. *(owner action — S)*
-- [ ] **Repo hygiene** — flip the default branch to `main`, then (once this roadmap PR has
-  landed) delete the merged development branch. The Dependabot PRs (#7–#11) are already
-  retargeted to base `main`, so they merge independently once green; the Gradle group bump
-  (Kotlin/AGP) deserves the closest look. *(owner action — S)*
+- [ ] **Repo hygiene** *(owner action — S)* — flip the default branch to `main` and delete the
+  merged development branch once the in-flight work lands. Dependabot's grouped toolchain
+  bumps (#7–#11) were superseded by the #19 refresh and are closed; one open minor bump
+  (#20, junit-bom 5.14.x) remains to triage against the deliberate JVM-11 JUnit pin.
 - [ ] **Maven Central badge + install snippet verification** after the first release. *(S)*
 
 ## 0.2 — Compose & everyday ergonomics
@@ -81,12 +81,19 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   (a fresh entry triggers nothing), shares the single-flight fetch with concurrent
   reads, stands down under negative caching, and never throws (failures surface through
   events). *(S)*
-- [~] **Batched fetching** (RFC #29) — Phase 1 shipped: a `batchFetcher { keys -> Map }`
-  builder option and `getAll(keys, freshness)` that collapses N keys into one backend call,
-  reusing the per-key machinery (single-flight, fencing, negative caching, persistence,
-  events) so batching is a pure transport optimization; single `get`/`stream`/`prefetch` use
-  it as a batch of one. Phase 2 (own PR): the coalescing window that auto-batches individual
-  fetches, plus `streamMany(keys)` built on it. *(L)*
+- [x] **Batched fetching, phase 1** (RFC #29) — a `batchFetcher { keys -> Map }` builder
+  option and `getAll(keys, freshness)` that collapses N keys into one backend call, reusing
+  the per-key machinery (single-flight, fencing, negative caching, persistence, events) so
+  batching is a pure transport optimization; a single `get`/`stream`/`prefetch` is a batch of
+  one. Returns the resolved subset (per-key failures omitted, not thrown). *(L)*
+- [ ] **Batched fetching, phase 2** (RFC #29) — the DataLoader coalescing window that
+  auto-batches individual `get`/`stream`/`prefetch` fetches (flush scheduling under the
+  injectable clock, `maxBatchSize`, fencing a key that mutates mid-window), `streamMany(keys)`
+  built on it, `prefetchAll(keys)` warmup, and whole-batch retry (retry-all vs. retry-failed
+  slice, plus per-key `onFetchRetried` event semantics). *(L)*
+- [ ] **Conditional batch fetching** — a validator-aware `batchFetcher` variant so ETag/304
+  revalidation composes with batching; deferred from RFC #29 as out of scope for v1 (a plain
+  batch fetcher carries no per-key validators). *(M)*
 - [ ] **#12 — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
   commit throughput against a real file store; implement per-key lock striping only if the
   numbers justify it (constraints documented in the issue). *(M–L)*
@@ -115,10 +122,27 @@ The engine's guarantees deserve machine-checked evidence.
   the issue, with the proof written down (the naive evictions are provably unsound). *(M)*
 - [ ] **`stats()` snapshot API** — hits, misses, evictions, in-flight count, per-store; the
   numbers `AquiferEvents` can't aggregate. *(S)*
+- [ ] **`aquifer-test` module** — a published, programmable fake `Aquifer` (scripted
+  values/failures/delays, assertable fetch counts) plus the deterministic `WallClock` and the
+  `settle()` helper, so consuming apps can unit-test their repositories the way this library
+  tests itself — the unit-test sibling of `previewAquifer`. *(M)*
 - [ ] **Coverage gate** — Kover + a CI threshold + badge. *(S)*
 - [ ] **Docs site** — publish the aggregated Dokka output via GitHub Pages on release. *(S)*
 - [ ] **Sample Android app** — a small Compose app demoing airplane-mode survival,
   pull-to-refresh coherence, and reconnect revalidation on a device. *(L)*
+
+## 0.6 — API ergonomics & polish
+
+Small, high-frequency conveniences surfaced while building the feature set; each must keep
+the existing fencing and single-flight guarantees.
+
+- [ ] **`invalidateWhere { key -> Bool }`** — predicate/bulk invalidation between the
+  surgical `invalidate(key)` and the nuclear `invalidateAll()`, for "drop everything for this
+  tenant/scope" resets. Must fence each matched key under `commitGuard`, like `invalidate`. *(S)*
+- [ ] **`putAll(entries)`** — bulk local write, the write-side mirror of `getAll`: seed many
+  keys from a manually-fetched batch in one fenced commit, one broadcast per key. *(S)*
+- [ ] **`snapshot()` / cached-key introspection** — a non-suspending peek at what is resident
+  in memory (keys, sizes), for debug overlays and eviction tuning; never triggers I/O. *(S)*
 
 ## 1.0 — the stability contract
 
@@ -135,8 +159,8 @@ The engine's guarantees deserve machine-checked evidence.
   engine's JVM concurrency also has to move: the `ConcurrentHashMap` CAS loops (`inFlight`,
   `activeKeys`, `keyEpochs`), `AtomicLong`/`AtomicBoolean`, and the `LinkedHashMap`-based
   LRU need KMP equivalents (atomicfu, mutex-guarded maps), plus a `kotlinx-io`/okio port of
-  the file store, iOS/desktop targets, and an iOS sample. The largest differentiator on the
-  list. *(XL)*
+  the file store, iOS/desktop targets, an iOS sample, and lifting `aquifer-compose` to Compose
+  Multiplatform. The largest differentiator on the list. *(XL)*
 - [ ] **Offline mutations** (`aquifer-mutations`) — the write-side counterpart to Aquifer's
   read-side: an optimistic-update queue with rollback and conflict hooks, surviving process
   death via the same `SourceOfTruth` machinery. *(XL)*
