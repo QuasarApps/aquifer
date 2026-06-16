@@ -90,6 +90,10 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * guarantee (single-flight dedup, fencing, negative caching, persistence, events) applies
      * per key, unchanged — batching is purely a fetch-transport optimization. To also
      * auto-coalesce individual fetches, use the [coalesceWindow][batchFetcher] overload.
+     *
+     * The store's [retry] policy wraps single-key fetches (including the batch of one a `get`
+     * makes here) but **not** the multi-key call [Aquifer.getAll] issues — add retry inside
+     * [fetch] if you need it. Whole-batch retry: RFC #29.
      */
     public fun batchFetcher(fetch: suspend (keys: Set<K>) -> Map<K, V>) {
         batchFetcher = fetch
@@ -111,7 +115,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * [fetch] if you need it. Whole-batch retry: RFC #29.
      *
      * @param coalesceWindow how long to gather keys before dispatching a batch; must be
-     *   positive (use the single-argument [batchFetcher] for no coalescing).
+     *   positive and finite (use the single-argument [batchFetcher] for no coalescing).
      * @param maxBatchSize dispatch early once this many distinct keys accumulate; must be ≥ 1.
      */
     public fun batchFetcher(
@@ -119,7 +123,9 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         maxBatchSize: Int = Int.MAX_VALUE,
         fetch: suspend (keys: Set<K>) -> Map<K, V>,
     ) {
-        require(coalesceWindow.isPositive()) { "coalesceWindow must be positive, was $coalesceWindow" }
+        require(coalesceWindow.isPositive() && coalesceWindow.isFinite()) {
+            "coalesceWindow must be positive and finite, was $coalesceWindow"
+        }
         require(maxBatchSize >= 1) { "maxBatchSize must be at least 1, was $maxBatchSize" }
         batchFetcher = fetch
         this.coalesceWindow = coalesceWindow

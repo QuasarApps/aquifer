@@ -191,6 +191,12 @@ class CoalescingWindowTest {
                 batchFetcher(coalesceWindow = Duration.ZERO) { keys -> keys.associateWith { 1 } }
             }
         }
+        // INFINITE is positive but would never flush a sub-maxBatchSize window.
+        assertFailsWith<IllegalArgumentException> {
+            aquifer<String, Int> {
+                batchFetcher(coalesceWindow = Duration.INFINITE) { keys -> keys.associateWith { 1 } }
+            }
+        }
         assertFailsWith<IllegalArgumentException> {
             aquifer<String, Int> {
                 batchFetcher(coalesceWindow = 10.milliseconds, maxBatchSize = 0) { keys -> keys.associateWith { 1 } }
