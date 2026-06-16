@@ -25,6 +25,8 @@ public final class io/github/quasarapps/aquifer/Aquifer$DefaultImpls {
 
 public final class io/github/quasarapps/aquifer/AquiferBuilder {
 	public final fun batchFetcher (Lkotlin/jvm/functions/Function2;)V
+	public final fun batchFetcher-KLykuaI (JILkotlin/jvm/functions/Function2;)V
+	public static synthetic fun batchFetcher-KLykuaI$default (Lio/github/quasarapps/aquifer/AquiferBuilder;JILkotlin/jvm/functions/Function2;ILjava/lang/Object;)V
 	public final fun clock (Lio/github/quasarapps/aquifer/WallClock;)V
 	public final fun conditionalFetcher (Lkotlin/jvm/functions/Function3;)V
 	public final fun events (Lio/github/quasarapps/aquifer/AquiferEvents;)V

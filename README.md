@@ -167,6 +167,17 @@ Every per-key guarantee — single-flight dedup, mutation fencing, negative cach
 persistence — holds exactly as for `get`; batching is purely a transport optimization, and an
 individual `get(id)` over a `batchFetcher` is just a batch of one.
 
+Add a `coalesceWindow` and even *unrelated* `get`/`stream`/`prefetch` calls auto-batch — the
+DataLoader pattern, with no change to call sites:
+
+```kotlin
+batchFetcher(coalesceWindow = 10.milliseconds) { ids -> api.fetchUsers(ids) }
+// 50 cards each call users.collectAsState(id) in one frame -> one POST /users?ids=…
+```
+
+Fetches landing within the window collapse into one call (dispatched when the window elapses
+or once `maxBatchSize` keys accumulate); a transient failure re-enters the next window.
+
 ### Surviving process death
 
 Add a `SourceOfTruth` and cached data outlives the process: cold starts render from disk
