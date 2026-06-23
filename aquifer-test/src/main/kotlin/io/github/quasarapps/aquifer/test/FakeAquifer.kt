@@ -68,6 +68,14 @@ internal sealed interface Scripted<out V : Any> {
     data class Failure(val error: Throwable) : Scripted<Nothing>
 }
 
+/** A scripted fetch delay must be non-negative and finite, so a fetch can't be silently
+ *  un-delayed or hang forever. */
+internal fun requireValidDelay(delay: Duration) {
+    require(delay >= Duration.ZERO && delay.isFinite()) {
+        "fetch delay must be non-negative and finite, was $delay"
+    }
+}
+
 /** Configuration DSL for [fakeAquifer]; every setting also has a runtime twin on [FakeAquifer]. */
 public class FakeAquiferBuilder<K : Any, V : Any> internal constructor() {
 
@@ -78,6 +86,10 @@ public class FakeAquiferBuilder<K : Any, V : Any> internal constructor() {
 
     /** A delay applied to every fetch without a more specific [delays] entry. Default: none. */
     public var fetchDelay: Duration = Duration.ZERO
+        set(value) {
+            requireValidDelay(value)
+            field = value
+        }
 
     /** Pre-populates the cache without counting as a fetch — the equivalent of a warm start. */
     public fun seed(vararg entries: Pair<K, V>) {
@@ -99,8 +111,10 @@ public class FakeAquiferBuilder<K : Any, V : Any> internal constructor() {
         scripted[key] = Scripted.Failure(error)
     }
 
-    /** Scripts fetching [key] to take [duration] (virtual time under `runTest`). */
+    /** Scripts fetching [key] to take [duration] (virtual time under `runTest`); must be
+     *  non-negative and finite. */
     public fun delays(key: K, duration: Duration) {
+        requireValidDelay(duration)
         delays[key] = duration
     }
 }
@@ -182,8 +196,9 @@ public class FakeAquifer<K : Any, V : Any> internal constructor(
         synchronized(lock) { scripted[key] = Scripted.Failure(error) }
     }
 
-    /** Re-scripts [key]'s fetch delay from now on. */
+    /** Re-scripts [key]'s fetch delay from now on; must be non-negative and finite. */
     public fun delays(key: K, duration: Duration) {
+        requireValidDelay(duration)
         synchronized(lock) { perKeyDelay[key] = duration }
     }
 
@@ -337,11 +352,12 @@ public class FakeAquifer<K : Any, V : Any> internal constructor(
         cached ?: throw error
     }
 
-    /** Whether an initial collection/read should fetch, given the strategy and cache presence. */
+    /** The prefetch fetch decision, given the strategy and cache presence — mirrors get(). */
     private fun initialFetch(freshness: Freshness, hasCached: Boolean): Boolean = when (freshness) {
         Freshness.CacheOnly -> false
-        Freshness.NetworkOnly -> true
-        Freshness.CacheFirst, Freshness.StaleWhileRevalidate, Freshness.NetworkFirst -> !hasCached
+        // Network-priority strategies fetch regardless of what's cached, exactly as get() decides.
+        Freshness.NetworkOnly, Freshness.NetworkFirst -> true
+        Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> !hasCached
     }
 
     private suspend fun prefetchOne(key: K, freshness: Freshness) {

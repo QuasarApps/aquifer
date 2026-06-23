@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class FakeAquiferTest {
@@ -202,6 +203,30 @@ class FakeAquiferTest {
             assertEquals(DataState.Empty, awaitItem())
         }
         assertEquals(0, store.fetchCount(), "a cache-only stream never fetches")
+    }
+
+    @Test
+    fun `prefetch with NetworkFirst refetches an already-cached key, like get`() = runTest {
+        val store = fakeAquifer<String, Int>(backgroundScope) {
+            seed("a" to 1)
+            returns("a", 2)
+        }
+
+        store.prefetch("a", Freshness.NetworkFirst) // network-priority: fetches despite the cache
+        settle()
+
+        assertEquals(1, store.fetchCount("a"))
+        assertEquals(2, store.get("a", Freshness.CacheOnly)) // the prefetch updated the cache
+    }
+
+    @Test
+    fun `a negative or non-finite scripted delay is rejected`() = runTest {
+        assertFailsWith<IllegalArgumentException> {
+            fakeAquifer<String, Int>(backgroundScope) { delays("a", -(1.seconds)) }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            fakeAquifer<String, Int>(backgroundScope) { fetchDelay = Duration.INFINITE }
+        }
     }
 
     @Test
