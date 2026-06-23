@@ -153,8 +153,12 @@ the existing fencing and single-flight guarantees.
 - [x] **`putAll(entries)`** — shipped: bulk local write, the write-side mirror of `getAll` — seed
   many keys from a manually-fetched batch in one fenced commit, one broadcast per key, each key
   fenced exactly like `put`. *(S)*
-- [ ] **`snapshot()` / cached-key introspection** — a non-suspending peek at what is resident
-  in memory (keys, sizes), for debug overlays and eviction tuning; never triggers I/O. *(S)*
+- [x] **`snapshot()` / cached-key introspection** — shipped as `snapshot(): Set<K>`, a
+  non-suspending peek at the keys resident in memory (`.size` is the live count), for debug
+  overlays and eviction tuning; never suspends and never triggers I/O, and is safe to call on a
+  closed store. Lists memory only (persisted-but-evicted keys excluded) and returns a stable
+  copy. `MemoryCache` now guards its LRU map with a plain monitor (its critical sections never
+  suspend) so the read needn't suspend. *(S)*
 
 ## 1.0 — the stability contract
 

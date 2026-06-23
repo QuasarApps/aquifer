@@ -32,8 +32,8 @@ import kotlin.time.Duration
  * needed; for app-wide singletons that is typically never.
  */
 // The public contract: each function is a distinct, cohesive cache operation — not a class
-// to decompose. (read/observe: stream, get, fresh, prefetch, getAll; mutate: put, putAll,
-// invalidate, invalidateWhere, invalidateAll; revalidate: revalidateActive, revalidateOn;
+// to decompose. (read/observe: stream, get, fresh, prefetch, getAll, snapshot; mutate: put,
+// putAll, invalidate, invalidateWhere, invalidateAll; revalidate: revalidateActive, revalidateOn;
 // lifecycle: close.)
 @Suppress("TooManyFunctions")
 public interface Aquifer<K : Any, V : Any> : AutoCloseable {
@@ -242,6 +242,17 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     public suspend fun invalidateAll()
 
     /**
+     * A non-suspending snapshot of the keys currently resident in the in-memory cache;
+     * `snapshot().size` is the live entry count. Together they're for debug overlays and eviction
+     * tuning — how full the cache is and what survived eviction.
+     *
+     * This is a peek at memory only: it never suspends, never touches persistence, and is safe to
+     * call from anywhere — including a closed store. Persisted-only keys (evicted from memory, or
+     * not yet hydrated) are not listed, and the returned set is a stable copy, not a live view.
+     */
+    public fun snapshot(): Set<K>
+
+    /**
      * Triggers a refresh for every key that currently has an active [stream] collector and
      * whose entry is stale or missing. Fresh entries and keys observed only by
      * [Freshness.CacheOnly] streams are skipped, and concurrent refreshes share fetches as
@@ -268,10 +279,11 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
 
     /**
      * Closes the store: cancels in-flight fetches and stops update delivery. Streams stop
-     * receiving emissions, subsequent calls to other members throw [IllegalStateException],
-     * and callers already awaiting a fetch get an [AquiferException] (never a bare
-     * cancellation of their own coroutine). Cancelling the scope passed to
-     * [AquiferBuilder.scope] has the same effect. Closing an already-closed store is a no-op.
+     * receiving emissions, subsequent calls to other members throw [IllegalStateException]
+     * (except [snapshot], a read-only memory peek that stays callable), and callers already
+     * awaiting a fetch get an [AquiferException] (never a bare cancellation of their own
+     * coroutine). Cancelling the scope passed to [AquiferBuilder.scope] has the same effect.
+     * Closing an already-closed store is a no-op.
      */
     override fun close()
 }

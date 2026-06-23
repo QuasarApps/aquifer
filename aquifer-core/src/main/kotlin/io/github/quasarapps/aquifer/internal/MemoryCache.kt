@@ -1,11 +1,12 @@
 package io.github.quasarapps.aquifer.internal
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-
 /**
- * A coroutine-safe LRU cache. Reads count as use: `get` refreshes an entry's recency, and
+ * A thread-safe LRU cache. Reads count as use: `get` refreshes an entry's recency, and
  * inserting beyond [maxEntries] evicts the least recently used entry.
+ *
+ * Every critical section is short and never suspends, so access is guarded by a plain monitor
+ * rather than a coroutine `Mutex` — matching the rest of the engine's internal state
+ * (`ConcurrentHashMap`, `Atomic*`) and letting reads like [keys] run without suspending.
  */
 internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
 
@@ -22,22 +23,28 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
         val validator: String? = null,
     )
 
-    private val mutex = Mutex()
+    private val lock = Any()
     private val entries = object : LinkedHashMap<K, Entry<V>>(INITIAL_CAPACITY, LOAD_FACTOR, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>): Boolean =
             size > maxEntries
     }
 
-    suspend fun get(key: K): Entry<V>? = mutex.withLock { entries[key] }
+    fun get(key: K): Entry<V>? = synchronized(lock) { entries[key] }
+
+    fun put(key: K, entry: Entry<V>) {
+        synchronized(lock) { entries[key] = entry }
+    }
+
+    fun remove(key: K) {
+        synchronized(lock) { entries.remove(key) }
+    }
+
+    fun clear() {
+        synchronized(lock) { entries.clear() }
+    }
 
     /** Snapshot of the resident keys; iterating the key set does not count as LRU use. */
-    suspend fun keys(): Set<K> = mutex.withLock { entries.keys.toSet() }
-
-    suspend fun put(key: K, entry: Entry<V>): Unit = mutex.withLock { entries[key] = entry }
-
-    suspend fun remove(key: K): Unit = mutex.withLock<Unit> { entries.remove(key) }
-
-    suspend fun clear(): Unit = mutex.withLock { entries.clear() }
+    fun keys(): Set<K> = synchronized(lock) { LinkedHashSet(entries.keys) }
 
     private companion object {
         const val INITIAL_CAPACITY = 16

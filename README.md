@@ -330,6 +330,17 @@ events(object : AquiferEvents<UserId> {
 Hooks cover fetch start/success/failure, every retry, and best-effort persistence write
 failures. Listeners that throw never disturb the engine.
 
+For a point-in-time peek, `snapshot()` returns the keys currently resident in memory —
+non-suspending, never any I/O, safe to call from anywhere (a debug overlay, eviction tuning):
+
+```kotlin
+val resident = users.snapshot()        // Set<UserId> in memory right now
+debugOverlay.show("cached: ${resident.size}/$maxEntries", resident)
+```
+
+It lists memory only — persisted-but-evicted keys aren't included — and returns a stable copy,
+not a live view.
+
 ## Testing your repositories
 
 Aquifer takes time and concurrency as injectable dependencies, so tests are deterministic:

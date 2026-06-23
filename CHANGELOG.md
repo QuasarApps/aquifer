@@ -7,6 +7,16 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — snapshot (resident-key introspection)
+
+- `Aquifer.snapshot(): Set<K>`: a non-suspending peek at the keys currently resident in the
+  in-memory cache (`snapshot().size` is the live entry count), for debug overlays and eviction
+  tuning. It never suspends, never touches persistence, and is safe to call from anywhere —
+  including a closed store. It lists memory only (persisted-but-evicted keys aren't included) and
+  returns a stable copy, not a live view. Internally `MemoryCache` now guards its LRU map with a
+  plain monitor instead of a coroutine `Mutex` (its critical sections never suspend), matching the
+  rest of the engine's internal state and making the resident-key read non-suspending.
+
 ### Added — invalidateWhere (predicate invalidation)
 
 - `Aquifer.invalidateWhere(predicate: (K) -> Boolean)`: the bulk middle ground between the surgical

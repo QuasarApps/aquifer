@@ -113,6 +113,8 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
         snapshots.value = emptyMap()
     }
 
+    override fun snapshot(): Set<K> = snapshots.value.keys.toSet()
+
     override suspend fun revalidateActive() = Unit
 
     override fun revalidateOn(trigger: Flow<*>) = Unit

@@ -750,6 +750,11 @@ internal class RealAquifer<K : Any, V : Any>(
         events.emit(Event.ClearedAll(sequence))
     }
 
+    // A non-suspending peek at memory residency: no commitGuard, no I/O, no checkOpen — safe to
+    // call from anywhere (a Compose debug overlay, eviction tuning), even on a closed store.
+    // memory.keys() snapshots under its own monitor, so the returned set is stable.
+    override fun snapshot(): Set<K> = memory.keys()
+
     /**
      * Invalidates everything an in-flight fetch for [key] might commit: bumps the key's
      * epoch and evicts the fetch from the registry so later refreshes start anew. The fetch
