@@ -59,9 +59,9 @@ class PutAllTest {
         settle() // the fetch is registered in-flight, suspended at the gate
         store.putAll(mapOf("a" to 99)) // fences the in-flight fetch
         gate.complete(Unit)
-        read.await() // the fetch still resolves for its caller...
+        assertEquals(-1, read.await()) // the fetch still resolves to its own value for its caller...
 
-        // ...but its commit was fenced: the cache keeps the putAll value.
+        // ...but its commit was fenced: the cache keeps the putAll value, not the fetched -1.
         assertEquals(99, store.get("a", Freshness.CacheOnly))
     }
 
