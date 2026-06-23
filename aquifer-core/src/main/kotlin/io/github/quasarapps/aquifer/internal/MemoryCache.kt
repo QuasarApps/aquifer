@@ -24,9 +24,13 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
     )
 
     private val lock = Any()
+    private var evictionCount = 0L
     private val entries = object : LinkedHashMap<K, Entry<V>>(INITIAL_CAPACITY, LOAD_FACTOR, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>): Boolean =
-            size > maxEntries
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>): Boolean {
+            val evict = size > maxEntries
+            if (evict) evictionCount++
+            return evict
+        }
     }
 
     fun get(key: K): Entry<V>? = synchronized(lock) { entries[key] }
@@ -45,6 +49,9 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
 
     /** Snapshot of the resident keys; iterating the key set does not count as LRU use. */
     fun keys(): Set<K> = synchronized(lock) { LinkedHashSet(entries.keys) }
+
+    /** Entries dropped by LRU eviction since construction. */
+    fun evictions(): Long = synchronized(lock) { evictionCount }
 
     private companion object {
         const val INITIAL_CAPACITY = 16

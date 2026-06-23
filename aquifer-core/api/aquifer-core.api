@@ -17,6 +17,7 @@ public abstract interface class io/github/quasarapps/aquifer/Aquifer : java/lang
 	public abstract fun revalidateActive (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun revalidateOn (Lkotlinx/coroutines/flow/Flow;)V
 	public abstract fun snapshot ()Ljava/util/Set;
+	public abstract fun stats ()Lio/github/quasarapps/aquifer/CacheStats;
 	public abstract fun stream-moChb0s (Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;)Lkotlinx/coroutines/flow/Flow;
 	public static synthetic fun stream-moChb0s$default (Lio/github/quasarapps/aquifer/Aquifer;Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun streamMany (Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;)Lkotlinx/coroutines/flow/Flow;
@@ -87,6 +88,30 @@ public final class io/github/quasarapps/aquifer/BatchKeyMissingException : io/gi
 
 public final class io/github/quasarapps/aquifer/CacheMissException : io/github/quasarapps/aquifer/AquiferException {
 	public fun <init> (Ljava/lang/Object;)V
+}
+
+public final class io/github/quasarapps/aquifer/CacheStats {
+	public static final field Companion Lio/github/quasarapps/aquifer/CacheStats$Companion;
+	public fun <init> (JJJI)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun component4 ()I
+	public final fun copy (JJJI)Lio/github/quasarapps/aquifer/CacheStats;
+	public static synthetic fun copy$default (Lio/github/quasarapps/aquifer/CacheStats;JJJIILjava/lang/Object;)Lio/github/quasarapps/aquifer/CacheStats;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEvictions ()J
+	public final fun getHitRate ()D
+	public final fun getHits ()J
+	public final fun getInFlight ()I
+	public final fun getMisses ()J
+	public final fun getReads ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/quasarapps/aquifer/CacheStats$Companion {
+	public final fun getEMPTY ()Lio/github/quasarapps/aquifer/CacheStats;
 }
 
 public abstract interface class io/github/quasarapps/aquifer/DataState {

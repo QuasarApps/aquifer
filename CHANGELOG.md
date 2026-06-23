@@ -7,6 +7,18 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — stats (cache counters)
+
+- `Aquifer.stats(): CacheStats`: a non-suspending snapshot of per-store cache counters — `hits`,
+  `misses`, `evictions`, and the current `inFlight` fetch gauge, plus derived `reads` and
+  `hitRate` — the aggregate numbers `AquiferEvents` can't give you, for hit-rate dashboards and
+  cache tuning. Like `snapshot()` it never suspends, never touches persistence, and is safe to
+  call on a closed store. A hit is a caller read (`get`/`getAll` per key, or a `stream`'s initial
+  emission) served from cache without awaiting a fetch; a miss is one that went to the network
+  (`NetworkFirst`/`NetworkOnly` always miss) or, for `CacheOnly`, found nothing — background
+  revalidation and `prefetch`/`prefetchAll` warmups aren't counted. The preview and fake stores
+  report `CacheStats.EMPTY`.
+
 ### Added — aquifer-test module
 
 - New published module `aquifer-test` with the unit-test utilities Aquifer uses on itself:

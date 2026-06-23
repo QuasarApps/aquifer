@@ -21,6 +21,7 @@ public final class io/github/quasarapps/aquifer/test/FakeAquifer : io/github/qua
 	public fun revalidateActive (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun revalidateOn (Lkotlinx/coroutines/flow/Flow;)V
 	public fun snapshot ()Ljava/util/Set;
+	public fun stats ()Lio/github/quasarapps/aquifer/CacheStats;
 	public fun stream-moChb0s (Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;)Lkotlinx/coroutines/flow/Flow;
 	public fun streamMany (Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;)Lkotlinx/coroutines/flow/Flow;
 }

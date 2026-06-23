@@ -5,6 +5,7 @@ import io.github.quasarapps.aquifer.AquiferEvents
 import io.github.quasarapps.aquifer.AquiferException
 import io.github.quasarapps.aquifer.BatchKeyMissingException
 import io.github.quasarapps.aquifer.CacheMissException
+import io.github.quasarapps.aquifer.CacheStats
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.FetchResult
 import io.github.quasarapps.aquifer.Freshness
@@ -85,6 +86,11 @@ internal class RealAquifer<K : Any, V : Any>(
     private val memory = MemoryCache<K, V>(maxEntries)
     private val inFlight = ConcurrentHashMap<K, Deferred<V>>()
     private val closed = AtomicBoolean(false)
+
+    // stats() counters. Reads run on many coroutines, so these are lock-free; evictions live on
+    // MemoryCache and in-flight is the inFlight gauge, both read at snapshot time.
+    private val hits = AtomicLong(0)
+    private val misses = AtomicLong(0)
 
     /**
      * DataLoader-style auto-coalescing for single-key fetches, present only when a batch
@@ -350,6 +356,7 @@ internal class RealAquifer<K : Any, V : Any>(
         // NetworkOnly bypasses cached reads entirely: no memory lookup, no persistence I/O.
         val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
         val usable = entry != null && !isExpired(key, entry.writtenAtMillis, maxAge)
+        recordRead(freshness, present = entry != null, usable = usable)
         return when (freshness) {
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
 
@@ -450,6 +457,8 @@ internal class RealAquifer<K : Any, V : Any>(
             // the cached value for stale-if-error fallback, not just the fetch decision.
             val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
             if (entry != null) cached[key] = entry.value
+            val usable = entry != null && !isExpired(key, entry.writtenAtMillis)
+            recordRead(freshness, present = entry != null, usable = usable)
             if (shouldFetch(key, freshness, entry, report = true)) toFetch += key
         }
         val fetched = batchRefresh(toFetch)
@@ -755,6 +764,28 @@ internal class RealAquifer<K : Any, V : Any>(
     // memory.keys() snapshots under its own monitor, so the returned set is stable.
     override fun snapshot(): Set<K> = memory.keys()
 
+    // Non-suspending like snapshot(): lock-free counter reads + the inFlight gauge, no checkOpen.
+    override fun stats(): CacheStats =
+        CacheStats(hits.get(), misses.get(), memory.evictions(), inFlight.size)
+
+    /** Records one caller read as a hit or a miss for [stats]; see [isCacheHit]. */
+    private fun recordRead(freshness: Freshness, present: Boolean, usable: Boolean) {
+        if (isCacheHit(freshness, present, usable)) hits.incrementAndGet() else misses.incrementAndGet()
+    }
+
+    /**
+     * Whether a caller read was served from cache without a fetch: the value-bearing strategies
+     * count a usable ([CacheFirst]) or merely present ([CacheOnly]/[StaleWhileRevalidate], which
+     * serve stale and revalidate in the background) entry as a hit; the network-priority ones
+     * ([NetworkFirst]/[NetworkOnly]) always go to the network, so they are always misses.
+     */
+    private fun isCacheHit(freshness: Freshness, present: Boolean, usable: Boolean): Boolean =
+        when (freshness) {
+            Freshness.CacheOnly, Freshness.StaleWhileRevalidate -> present
+            Freshness.CacheFirst -> usable
+            Freshness.NetworkFirst, Freshness.NetworkOnly -> false
+        }
+
     /**
      * Invalidates everything an in-flight fetch for [key] might commit: bumps the key's
      * epoch and evicts the fetch from the registry so later refreshes start anew. The fetch
@@ -868,6 +899,7 @@ internal class RealAquifer<K : Any, V : Any>(
         // ourselves is not mistaken for a pre-existing one) and replay it below.
         val joinedInFlightFetch = inFlight.containsKey(key)
         val needsValue = entry == null || isExpired(key, entry.writtenAtMillis, maxAge)
+        recordRead(freshness, present = entry != null, usable = entry != null && !needsValue)
         val wantsFetch = wantsFetch(freshness, needsValue)
         val block = fetchBlock(key, wantsFetch, freshness)
         if (wantsFetch && block == null) refresh(key)

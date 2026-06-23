@@ -2,6 +2,7 @@ package io.github.quasarapps.aquifer.test
 
 import io.github.quasarapps.aquifer.Aquifer
 import io.github.quasarapps.aquifer.CacheMissException
+import io.github.quasarapps.aquifer.CacheStats
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Freshness
 import io.github.quasarapps.aquifer.Origin
@@ -318,6 +319,9 @@ public class FakeAquifer<K : Any, V : Any> internal constructor(
     }
 
     override fun snapshot(): Set<K> = cache.value.keys.toSet()
+
+    /** The fake doesn't track cache counters — assert on [fetchCount]/[fetchedKeys] instead. */
+    override fun stats(): CacheStats = CacheStats.EMPTY
 
     override suspend fun revalidateActive() {
         checkOpen() // no-op: the fake tracks no active collectors; drive refreshes with fresh()/get

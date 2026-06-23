@@ -129,8 +129,10 @@ The engine's guarantees deserve machine-checked evidence.
   interleavings; the strongest possible backing for the epoch design. *(L)*
 - [ ] **#13 — bounded `keyEpochs`** — implement the live-fetch refcount eviction sketched in
   the issue, with the proof written down (the naive evictions are provably unsound). *(M)*
-- [ ] **`stats()` snapshot API** — hits, misses, evictions, in-flight count, per-store; the
-  numbers `AquiferEvents` can't aggregate. *(S)*
+- [x] **`stats()` snapshot API** — shipped as `stats(): CacheStats`: non-suspending per-store
+  counters (hits, misses, evictions, in-flight gauge, plus derived reads/hitRate), the numbers
+  `AquiferEvents` can't aggregate. Counted at the caller-read chokepoints (get/getAll/stream
+  prime); background revalidation and prefetch warmups are excluded. *(S)*
 - [x] **`aquifer-test` module** — shipped: a published, programmable fake `Aquifer`
   (`fakeAquifer(scope) { … }` with scripted values/failures/delays and assertable fetch counts,
   re-scriptable at runtime) plus the deterministic `FakeClock` and the `settle()` helper, so

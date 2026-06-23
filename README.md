@@ -341,6 +341,19 @@ debugOverlay.show("cached: ${resident.size}/$maxEntries", resident)
 It lists memory only — persisted-but-evicted keys aren't included — and returns a stable copy,
 not a live view.
 
+`stats()` is the counters companion — hit/miss totals, LRU evictions, and the current in-flight
+fetch count, the aggregate numbers the event hooks above can't give you, for hit-rate dashboards
+and cache tuning (also non-suspending and I/O-free):
+
+```kotlin
+val s = users.stats()
+debugOverlay.show("hit rate ${(s.hitRate * 100).toInt()}%  in-flight ${s.inFlight}  evicted ${s.evictions}")
+```
+
+A hit is a read served from cache without a fetch; a miss is one that went to the network
+(`NetworkFirst`/`NetworkOnly` reads always count as misses). Background revalidation and prefetch
+warmups aren't counted.
+
 ## Testing your repositories
 
 Aquifer takes time and concurrency as injectable dependencies, so tests are deterministic:
