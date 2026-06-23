@@ -300,7 +300,10 @@ internal class RealAquifer<K : Any, V : Any>(
     override fun streamMany(keys: Set<K>, freshness: Freshness): Flow<Map<K, DataState<V>>> {
         checkOpen()
         if (keys.isEmpty()) return flowOf(emptyMap())
-        val ordered = keys.toList()
+        // Snapshot the key set once, at call time: the batched pre-fetch and the per-key streams
+        // both run later (on collection), so a caller that mutates the Set it passed in between
+        // must not desync the two — they must observe the same members.
+        val members = LinkedHashSet(keys)
         return flow {
             checkOpen()
             // Batch the initial fetches: register one shared batchFetcher call for the keys that
@@ -311,15 +314,15 @@ internal class RealAquifer<K : Any, V : Any>(
             // this makes streamMany batch even without one (and dispatches immediately, like
             // getAll), matching getAll's promise.
             try {
-                startBatch(keysNeedingFetch(keys, freshness))
+                startBatch(keysNeedingFetch(members, freshness))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
                 // A pre-batch cache read threw: degrade to per-key fetching — each member stream
                 // still does its own load and fetch below, and surfaces the error for real.
             }
-            combine(ordered.map { key -> stream(key, freshness) }) { states ->
-                buildMap(ordered.size) { ordered.forEachIndexed { index, key -> put(key, states[index]) } }
+            combine(members.map { key -> stream(key, freshness) }) { states ->
+                buildMap(members.size) { members.forEachIndexed { index, key -> put(key, states[index]) } }
             }.collect { emit(it) }
         }
     }
@@ -396,13 +399,16 @@ internal class RealAquifer<K : Any, V : Any>(
     override fun prefetchAll(keys: Set<K>, freshness: Freshness) {
         checkOpen()
         if (keys.isEmpty() || freshness == Freshness.CacheOnly) return // CacheOnly never fetches
+        // Snapshot before launching: the fetch decision runs later in the store scope, so a
+        // caller that mutates the Set it passed right after this call must not change the batch.
+        val members = LinkedHashSet(keys)
         // Fire-and-forget like prefetch, but collapsed into one backend call like getAll: decide
         // which keys actually want a fetch (freshness + the negative-cache gate), then dispatch
         // them as one batch. The fetches run and commit in the store scope; we never await them,
         // and per-key failures surface through AquiferEvents — never thrown to the caller.
         scope.launch {
             try {
-                startBatch(keysNeedingFetch(keys, freshness))
+                startBatch(keysNeedingFetch(members, freshness))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
