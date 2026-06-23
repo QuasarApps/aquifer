@@ -96,6 +96,10 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
         snapshots.update { it + (key to value) }
     }
 
+    override suspend fun putAll(entries: Map<K, V>) {
+        snapshots.update { it + entries }
+    }
+
     override suspend fun invalidate(key: K) {
         snapshots.update { it - key }
     }

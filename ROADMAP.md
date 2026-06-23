@@ -148,8 +148,9 @@ the existing fencing and single-flight guarantees.
 - [ ] **`invalidateWhere { key -> Boolean }`** — predicate/bulk invalidation between the
   surgical `invalidate(key)` and the nuclear `invalidateAll()`, for "drop everything for this
   tenant/scope" resets. Must fence each matched key under `commitGuard`, like `invalidate`. *(S)*
-- [ ] **`putAll(entries)`** — bulk local write, the write-side mirror of `getAll`: seed many
-  keys from a manually-fetched batch in one fenced commit, one broadcast per key. *(S)*
+- [x] **`putAll(entries)`** — shipped: bulk local write, the write-side mirror of `getAll` — seed
+  many keys from a manually-fetched batch in one fenced commit, one broadcast per key, each key
+  fenced exactly like `put`. *(S)*
 - [ ] **`snapshot()` / cached-key introspection** — a non-suspending peek at what is resident
   in memory (keys, sizes), for debug overlays and eviction tuning; never triggers I/O. *(S)*
 

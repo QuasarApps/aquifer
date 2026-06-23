@@ -178,6 +178,10 @@ val states: Flow<Map<UserId, DataState<User>>> = users.streamMany(visibleIds)  /
 users.prefetchAll(nextPageIds)                                                 // warm the next page, returns instantly
 ```
 
+Already holding the data — a websocket frame, a paginated payload? `putAll(entries)` is the
+write-side mirror: it seeds many keys in one fenced commit (one update per key), the bulk form of
+`put`.
+
 Add a `coalesceWindow` and even *unrelated* `get`/`stream`/`prefetch` calls auto-batch — the
 DataLoader pattern, with no change to call sites:
 

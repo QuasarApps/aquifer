@@ -653,6 +653,30 @@ internal class RealAquifer<K : Any, V : Any>(
         events.emit(Event.Updated(key, value, Origin.LOCAL, now, entry.sequence))
     }
 
+    override suspend fun putAll(entries: Map<K, V>) {
+        checkOpen()
+        if (entries.isEmpty()) return
+        // One fenced commit for the whole batch, mirroring put per key: persist, fence off any
+        // in-flight fetch, clear the negative-cache record, and stamp a fresh memory entry. The
+        // commit sequences increase in iteration order so collectors arbitrate updates correctly.
+        val now = clock.nowMillis()
+        val committed = LinkedHashMap<K, MemoryCache.Entry<V>>(entries.size)
+        commitGuard.withLock {
+            for ((key, value) in entries) {
+                persistence?.write(key, PersistedEntry(value, now))
+                fence(key)
+                negative.remove(key)
+                val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
+                memory.put(key, entry)
+                committed[key] = entry
+            }
+        }
+        // One broadcast per key, outside the lock (like put) so a slow collector can't stall it.
+        for ((key, entry) in committed) {
+            events.emit(Event.Updated(key, entry.value, Origin.LOCAL, now, entry.sequence))
+        }
+    }
+
     override suspend fun invalidate(key: K) {
         checkOpen()
         // The drop takes a slot in the same commit order as writes: bus emission happens

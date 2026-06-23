@@ -196,6 +196,19 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     public suspend fun put(key: K, value: V)
 
     /**
+     * Writes many [entries] into the cache as fresh entries in one fenced commit — the bulk,
+     * write-side mirror of [getAll]: seed the store from a batch you fetched yourself, without N
+     * separate [put] calls. Each key is committed and fenced exactly as [put] would (a fetch
+     * already in flight for it cannot overwrite the new value, and its negative-cache record is
+     * cleared), and every active stream of a written key observes a single update. An empty map
+     * is a no-op.
+     *
+     * The write is local only; pushing the changes to your backend remains the caller's
+     * responsibility.
+     */
+    public suspend fun putAll(entries: Map<K, V>)
+
+    /**
      * Drops the cached entry for [key], in memory and in persistence. Fetch-capable active
      * streams re-fetch automatically with a *new* request; a fetch already in flight is
      * fenced off so its response cannot resurrect the invalidated data. [Freshness.CacheOnly]
