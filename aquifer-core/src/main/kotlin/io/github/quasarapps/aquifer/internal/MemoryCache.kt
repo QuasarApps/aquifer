@@ -4,9 +4,9 @@ package io.github.quasarapps.aquifer.internal
  * A thread-safe LRU cache. Reads count as use: `get` refreshes an entry's recency, and
  * inserting beyond [maxEntries] evicts the least recently used entry.
  *
- * Every critical section is a single map operation that never suspends, so access is guarded by
- * a plain monitor rather than a coroutine `Mutex` — matching the rest of the engine's internal
- * state (`ConcurrentHashMap`, `Atomic*`) and letting reads like [keys] run without suspending.
+ * Every critical section is short and never suspends, so access is guarded by a plain monitor
+ * rather than a coroutine `Mutex` — matching the rest of the engine's internal state
+ * (`ConcurrentHashMap`, `Atomic*`) and letting reads like [keys] run without suspending.
  */
 internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
 
