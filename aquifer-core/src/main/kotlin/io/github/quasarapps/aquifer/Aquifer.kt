@@ -226,11 +226,11 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * record cleared), and its observers see the deletion the same way, in one fenced commit.
      *
      * [predicate] is tested against the keys this store currently tracks in the process —
-     * resident memory entries, active streams, in-flight fetches, and negative-cache and
-     * write-epoch records — and runs outside the commit lock, so it must not call back into the
-     * store. A [SourceOfTruth] cannot enumerate its keys, so a persisted entry for a key this
-     * process has never touched is out of reach; use [invalidateAll] for a full wipe regardless
-     * of what is currently loaded.
+     * resident memory entries, active fetch-capable streams, in-flight fetches, and negative-cache
+     * and write-epoch records — and runs outside the commit lock, so it must not call back into the
+     * store. A [SourceOfTruth] cannot enumerate its keys, so a key tracked in none of those — a
+     * persisted entry evicted from memory and never re-touched, or one never loaded this run — is
+     * out of reach; use [invalidateAll] for a full wipe regardless of what is currently loaded.
      */
     public suspend fun invalidateWhere(predicate: (K) -> Boolean)
 

@@ -702,10 +702,11 @@ internal class RealAquifer<K : Any, V : Any>(
     override suspend fun invalidateWhere(predicate: (K) -> Boolean) {
         checkOpen()
         // Candidate keys = everything this process currently tracks: resident memory entries,
-        // active streams, in-flight fetches, and negative-cache and write-epoch records. A
-        // SourceOfTruth can't enumerate its keys, so a persisted-only key this process never
-        // touched is out of reach (use invalidateAll for that). The predicate runs here, never
-        // under commitGuard, so user code can't stall or re-enter the store while it's locked.
+        // active fetch-capable streams, in-flight fetches, and negative-cache and write-epoch
+        // records. A SourceOfTruth can't enumerate its keys, so a key in none of those — a
+        // persisted entry evicted from memory and never re-touched, or one never loaded this
+        // run — is out of reach (use invalidateAll for that). The predicate runs here, never
+        // under commitGuard, so user code can't stall or re-enter the store while it's held.
         val matched = buildSet {
             addAll(memory.keys())
             addAll(activeKeys.keys)
@@ -714,14 +715,16 @@ internal class RealAquifer<K : Any, V : Any>(
             addAll(keyEpochs.keys)
         }.filter(predicate)
         if (matched.isEmpty()) return
-        // One fenced commit for the batch, mirroring invalidate per key: delete persistence,
-        // fence off any in-flight fetch, clear the negative record, drop memory. Sequences
-        // increase in iteration order; the per-key Invalidated broadcasts happen outside the
-        // lock (like invalidate) so a slow collector can't stall the commit.
+        // One fenced commit for the batch, mirroring invalidate per key. Delete persistence for
+        // every matched key first, like putAll: a delete failure propagates before any in-memory
+        // drop or sequence allocation, so the visible state (memory + Invalidated events) is
+        // all-or-nothing. Then the non-throwing in-memory drops + fences; sequences increase in
+        // iteration order, and the per-key broadcasts happen outside the lock (like invalidate)
+        // so a slow collector can't stall the commit.
         val drops = ArrayList<Pair<K, Long>>(matched.size)
         commitGuard.withLock {
+            persistence?.let { store -> for (key in matched) store.delete(key) }
             for (key in matched) {
-                persistence?.delete(key)
                 fence(key)
                 negative.remove(key)
                 memory.remove(key)

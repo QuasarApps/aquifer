@@ -14,11 +14,11 @@ versions may contain breaking changes.
   resets. Every matched key is dropped and fenced in one commit exactly as `invalidate` (memory and
   persistence cleared, any in-flight fetch fenced off, negative-cache record cleared), and its
   observers see the deletion the same way. The predicate is tested against the keys the store
-  currently tracks in the process (resident memory, active streams, in-flight fetches, and
-  negative-cache and write-epoch records) and runs outside the commit lock, so it must not call back
-  into the store. A `SourceOfTruth` can't enumerate its keys, so a persisted entry for a key this
-  process has never touched is out of reach — use `invalidateAll` for a full wipe regardless of what
-  is loaded.
+  currently tracks in the process (resident memory, active fetch-capable streams, in-flight fetches,
+  and negative-cache and write-epoch records) and runs outside the commit lock, so it must not call
+  back into the store. A `SourceOfTruth` can't enumerate its keys, so a key tracked in none of those
+  (a persisted entry evicted from memory and never re-touched, or one never loaded this run) is out
+  of reach — use `invalidateAll` for a full wipe regardless of what is loaded.
 
 ### Added — putAll (bulk local write)
 

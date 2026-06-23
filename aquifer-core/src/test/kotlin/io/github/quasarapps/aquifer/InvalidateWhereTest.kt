@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -135,6 +136,40 @@ class InvalidateWhereTest {
 
         assertFailsWith<IllegalStateException> { store.get("k") } // not suppressed: fetches again
         assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `invalidateWhere whose persistence delete fails drops nothing from memory and emits nothing`() = runTest {
+        // Delete-all-first: this store throws when deleting "b". The visible state (memory +
+        // Invalidated events) must stay untouched — no key dropped, no broadcast — even though
+        // a delete already ran for an earlier key (the documented non-transactional caveat).
+        val disk = object : SourceOfTruth<String, Int> {
+            val storage = mutableMapOf<String, PersistedEntry<Int>>()
+            override suspend fun read(key: String): PersistedEntry<Int>? = storage[key]
+            override suspend fun write(key: String, entry: PersistedEntry<Int>) {
+                storage[key] = entry
+            }
+
+            override suspend fun delete(key: String) {
+                if (key == "b") throw IOException("disk down")
+                storage.remove(key)
+            }
+
+            override suspend fun deleteAll() = storage.clear()
+        }
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            persistence(disk)
+            fetcher { -1 }
+        }
+        store.putAll(mapOf("a" to 1, "b" to 2))
+
+        store.stream("a", Freshness.CacheOnly).test {
+            assertEquals(DataState.Content(1, Origin.MEMORY, isStale = false), awaitItem())
+            assertFailsWith<IOException> { store.invalidateWhere { it == "a" || it == "b" } }
+            expectNoEvents() // the delete threw before any in-memory drop: "a" is not evicted
+        }
+        assertEquals(1, store.get("a", Freshness.CacheOnly)) // still resident
     }
 
     @Test
