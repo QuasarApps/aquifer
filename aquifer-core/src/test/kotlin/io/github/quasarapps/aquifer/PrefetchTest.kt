@@ -3,6 +3,7 @@ package io.github.quasarapps.aquifer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -347,5 +348,29 @@ class PrefetchTest {
         store.close()
 
         assertFailsWith<IllegalStateException> { store.prefetchAll(setOf("a")) }
+    }
+
+    @Test
+    fun `prefetchAll with NetworkFirst fetches without reading the cache`() = runTest {
+        val batches = mutableListOf<Set<String>>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            persistence(object : SourceOfTruth<String, Int> {
+                override suspend fun read(key: String): PersistedEntry<Int>? = throw IOException("disk down")
+                override suspend fun write(key: String, entry: PersistedEntry<Int>) = Unit
+                override suspend fun delete(key: String) = Unit
+                override suspend fun deleteAll() = Unit
+            })
+            batchFetcher { keys ->
+                batches += keys
+                keys.associateWith { it.length }
+            }
+        }
+
+        // NetworkFirst is always-fetch: the decision must not read the cache, so the throwing
+        // read is never hit and the whole batch still fires — no silent drop, no wasted I/O.
+        store.prefetchAll(setOf("a", "bb"), Freshness.NetworkFirst)
+        settle()
+        assertEquals(listOf(setOf("a", "bb")), batches)
     }
 }

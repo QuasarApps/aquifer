@@ -143,14 +143,23 @@ internal class RealAquifer<K : Any, V : Any>(
      * is reported via [AquiferEvents.onFetchSuppressed].
      */
     private fun suppression(key: K): NegativeEntry? {
+        val entry = activeSuppression(key) ?: return null
+        notify { onFetchSuppressed(key, entry.error, (entry.suppressUntilMillis - clock.nowMillis()).milliseconds) }
+        return entry
+    }
+
+    /**
+     * The live suppression for [key] **without** the [AquiferEvents.onFetchSuppressed] side
+     * effect — the pure predicate behind [suppression]. Used where reporting here would
+     * double-fire (streamMany's pre-batch gate, which leaves the single report to each key's
+     * stream [prime]).
+     */
+    private fun activeSuppression(key: K): NegativeEntry? {
         if (negativeCache == null) return null
         val entry = negative[key] ?: return null
-        val now = clock.nowMillis()
         // Expired: fetching is allowed again, but the record stays — the streak resets only
         // on success or mutation, never by the mere passage of time.
-        if (now >= entry.suppressUntilMillis) return null
-        notify { onFetchSuppressed(key, entry.error, (entry.suppressUntilMillis - now).milliseconds) }
-        return entry
+        return if (clock.nowMillis() >= entry.suppressUntilMillis) null else entry
     }
 
     /** Serves [fallback] (stale-if-error without re-fetching) or rethrows the remembered
@@ -314,7 +323,9 @@ internal class RealAquifer<K : Any, V : Any>(
             // this makes streamMany batch even without one (and dispatches immediately, like
             // getAll), matching getAll's promise.
             try {
-                startBatch(keysNeedingFetch(members, freshness))
+                // reportSuppression = false: each member's stream prime reports onFetchSuppressed,
+                // so the pre-batch gate must stay silent or a suppressed key would fire it twice.
+                startBatch(keysNeedingFetch(members, freshness, reportSuppression = false))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
@@ -408,7 +419,9 @@ internal class RealAquifer<K : Any, V : Any>(
         // and per-key failures surface through AquiferEvents — never thrown to the caller.
         scope.launch {
             try {
-                startBatch(keysNeedingFetch(members, freshness))
+                // reportSuppression = true: prefetchAll has no per-key stream, so it is the one
+                // place a suppressed key's onFetchSuppressed is reported (as plain prefetch does).
+                startBatch(keysNeedingFetch(members, freshness, reportSuppression = true))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
@@ -442,19 +455,33 @@ internal class RealAquifer<K : Any, V : Any>(
     }
 
     /**
-     * Decides, per key, whether it needs a network fetch under [freshness] — using get's exact
-     * primitives ([wantsFetch] plus the negative-cache [fetchBlock] gate) — and returns the set
-     * that does, in iteration order of [keys]. Shared by the fire-and-forget batch entry points
-     * ([prefetchAll], [streamMany]'s pre-trigger); [getAll] keeps its own pass because it also
-     * captures the cached values for stale-if-error fallback in the same read.
+     * Decides, per key, whether it needs a network fetch under [freshness] — mirroring
+     * [prefetch]'s decision exactly: only the staleness-aware strategies read the cache; the
+     * always-fetch ones ([Freshness.NetworkFirst]/[Freshness.NetworkOnly]) skip the I/O, so a
+     * read failure swallowed by [prefetchAll]'s best-effort catch can never turn an always-fetch
+     * warmup into a silent no-op (and the wasted I/O is avoided). Then [wantsFetch] plus the
+     * negative-cache [fetchBlock] gate. Returns the keys that need a fetch, in iteration order
+     * of [keys]. Shared by the fire-and-forget batch entry points ([prefetchAll],
+     * [streamMany]'s pre-trigger); [getAll] keeps its own pass because it also captures the
+     * cached values for stale-if-error fallback in the same read.
+     *
+     * [reportSuppression] controls whether a suppressed key fires
+     * [AquiferEvents.onFetchSuppressed] here: [prefetchAll] reports (it has no per-key stream),
+     * while [streamMany] passes `false` and leaves the single report to each key's stream
+     * [prime] — so a negative-cached member is announced once, not twice.
      */
-    private suspend fun keysNeedingFetch(keys: Set<K>, freshness: Freshness): Set<K> {
+    private suspend fun keysNeedingFetch(keys: Set<K>, freshness: Freshness, reportSuppression: Boolean): Set<K> {
         val toFetch = LinkedHashSet<K>()
         for (key in keys) {
-            val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
-            val needsValue = entry == null || isExpired(key, entry.writtenAtMillis)
+            val needsValue = when (freshness) {
+                Freshness.CacheFirst, Freshness.StaleWhileRevalidate ->
+                    load(key)?.entry?.let { isExpired(key, it.writtenAtMillis) } ?: true
+                else -> true
+            }
             val wantsFetch = wantsFetch(freshness, needsValue)
-            if (wantsFetch && fetchBlock(key, wantsFetch, freshness) == null) toFetch += key
+            if (wantsFetch && fetchBlock(key, wantsFetch, freshness, report = reportSuppression) == null) {
+                toFetch += key
+            }
         }
         return toFetch
     }
@@ -760,14 +787,21 @@ internal class RealAquifer<K : Any, V : Any>(
 
     /**
      * The negative-cache entry that holds back an otherwise-wanted fetch of [key], or `null`
-     * when a fetch may proceed. Consults (and reports through [AquiferEvents.onFetchSuppressed])
-     * the suppression memory *only* when [wantsFetch] is true and the strategy isn't
-     * [Freshness.NetworkOnly] — the explicit-demand carve-out — so no-op decision paths never
-     * spuriously report a suppression. The single home for this gating, shared by [prime] and
-     * [prefetch].
+     * when a fetch may proceed. Consults the suppression memory *only* when [wantsFetch] is true
+     * and the strategy isn't [Freshness.NetworkOnly] — the explicit-demand carve-out — so no-op
+     * decision paths never spuriously report a suppression. The single home for this gating,
+     * shared by [prime], [prefetch], and [keysNeedingFetch].
+     *
+     * [report] true reports through [AquiferEvents.onFetchSuppressed] (the default, for the
+     * paths that gate a real fetch); `false` uses the non-notifying [activeSuppression], for
+     * streamMany's pre-batch gate whose per-key [prime] reports instead.
      */
-    private fun fetchBlock(key: K, wantsFetch: Boolean, freshness: Freshness): NegativeEntry? =
-        if (wantsFetch && freshness != Freshness.NetworkOnly) suppression(key) else null
+    private fun fetchBlock(key: K, wantsFetch: Boolean, freshness: Freshness, report: Boolean = true): NegativeEntry? =
+        if (wantsFetch && freshness != Freshness.NetworkOnly) {
+            if (report) suppression(key) else activeSuppression(key)
+        } else {
+            null
+        }
 
     /**
      * Returns the in-flight fetch for [key], starting one when none is running. The fetch runs

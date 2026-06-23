@@ -3,10 +3,13 @@ package io.github.quasarapps.aquifer
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /** `streamMany`: a combined `Map<K, DataState>` flow whose initial fetches are batched. */
 class StreamManyTest {
@@ -138,5 +141,30 @@ class StreamManyTest {
         store.close()
 
         assertFailsWith<IllegalStateException> { store.streamMany(setOf("a")) }
+    }
+
+    @Test
+    fun `streamMany reports a suppressed key's onFetchSuppressed exactly once`() = runTest {
+        val suppressions = mutableListOf<String>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            batchFetcher { throw IOException("down") }
+            negativeCache { timeToLive = 30.seconds }
+            events(object : AquiferEvents<String> {
+                override fun onFetchSuppressed(key: String, error: Throwable, remaining: Duration) {
+                    suppressions += key
+                }
+            })
+        }
+        // Fail "a" once (a batch of one) so it becomes negative-cached.
+        assertFailsWith<IOException> { store.get("a") }
+        suppressions.clear()
+
+        store.streamMany(setOf("a")).test {
+            awaitItem() // the suppressed, valueless key surfaces as Failure
+            cancelAndIgnoreRemainingEvents()
+        }
+        // The pre-batch gate stays silent (reportSuppression = false); only the stream prime reports.
+        assertEquals(listOf("a"), suppressions, "exactly one onFetchSuppressed, not one per decision pass")
     }
 }

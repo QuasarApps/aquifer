@@ -82,8 +82,9 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * events) is unchanged; batching is purely a fetch-transport optimization.
      *
      * The emitted map carries an entry for every key in [keys] once each has produced its
-     * first state (`Loading` initially). An empty [keys] yields a single empty map. Like
-     * [stream], collect it in a scope matching your UI lifecycle.
+     * first state — whatever the corresponding [stream] would emit: cached `Content`, `Loading`
+     * on a miss that will fetch, `Empty` for a `CacheOnly` miss, or `Failure`. An empty [keys]
+     * yields a single empty map. Like [stream], collect it in a scope matching your UI lifecycle.
      *
      * @param freshness strategy for each member key; defaults to
      *   [Freshness.StaleWhileRevalidate].
