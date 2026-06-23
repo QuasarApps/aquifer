@@ -225,6 +225,8 @@ class FakeAquiferTest {
         assertFailsWith<IllegalStateException> { store.get("a") }
         assertFailsWith<IllegalStateException> { store.put("a", 2) }
         assertFailsWith<IllegalStateException> { store.invalidateAll() }
+        assertFailsWith<IllegalStateException> { store.stream("a") } // throws at call time, not on collect
+        assertFailsWith<IllegalStateException> { store.streamMany(emptySet()) }
         assertEquals(setOf("a"), store.snapshot()) // the read-only peek stays callable
     }
 

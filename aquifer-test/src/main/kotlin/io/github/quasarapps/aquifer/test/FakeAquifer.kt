@@ -188,6 +188,7 @@ public class FakeAquifer<K : Any, V : Any> internal constructor(
     // --- Aquifer: reads ---------------------------------------------------------------------
 
     override fun stream(key: K, freshness: Freshness, maxAge: Duration?): Flow<DataState<V>> {
+        checkOpen() // fail fast at call time, like the real store (and again on collection below)
         requireValidMaxAge(maxAge)
         return flow {
             checkOpen()
@@ -222,6 +223,7 @@ public class FakeAquifer<K : Any, V : Any> internal constructor(
     }
 
     override fun streamMany(keys: Set<K>, freshness: Freshness): Flow<Map<K, DataState<V>>> {
+        checkOpen() // before the empty-keys early return, matching the real store
         if (keys.isEmpty()) return flowOf(emptyMap())
         val ordered = keys.toList()
         return combine(ordered.map { key -> stream(key, freshness) }) { states ->
