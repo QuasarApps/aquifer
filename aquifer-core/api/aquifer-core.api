@@ -12,6 +12,7 @@ public abstract interface class io/github/quasarapps/aquifer/Aquifer : java/lang
 	public abstract fun prefetchAll (Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;)V
 	public static synthetic fun prefetchAll$default (Lio/github/quasarapps/aquifer/Aquifer;Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;ILjava/lang/Object;)V
 	public abstract fun put (Ljava/lang/Object;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun putAll (Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun revalidateActive (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun revalidateOn (Lkotlinx/coroutines/flow/Flow;)V
 	public abstract fun stream-moChb0s (Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;)Lkotlinx/coroutines/flow/Flow;

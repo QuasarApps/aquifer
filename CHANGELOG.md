@@ -7,6 +7,14 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — putAll (bulk local write)
+
+- `Aquifer.putAll(entries: Map<K, V>)`: the bulk, write-side mirror of `getAll` — seed many keys
+  from a batch you fetched yourself in one fenced commit, instead of N separate `put` calls. Each
+  key is committed and fenced exactly as `put` (a fetch already in flight for it cannot overwrite
+  the new value, its negative-cache record is cleared, and persistence is written through), and
+  every active stream of a written key observes a single `Updated`. An empty map is a no-op.
+
 ### Added — conditional batch fetching (RFC #29)
 
 - `conditionalBatchFetcher { validators: Map<K, String?> -> Map<K, FetchResult<V>> }`: the batch

@@ -653,6 +653,38 @@ internal class RealAquifer<K : Any, V : Any>(
         events.emit(Event.Updated(key, value, Origin.LOCAL, now, entry.sequence))
     }
 
+    override suspend fun putAll(entries: Map<K, V>) {
+        checkOpen()
+        if (entries.isEmpty()) return
+        // One fenced commit for the whole batch, mirroring put. The commit sequences increase in
+        // iteration order so collectors arbitrate updates correctly.
+        val now = clock.nowMillis()
+        val committed = LinkedHashMap<K, MemoryCache.Entry<V>>(entries.size)
+        commitGuard.withLock {
+            // Persist everything first, like put: if a write throws it propagates before any
+            // in-memory commit or broadcast, so the *visible* state (memory + Updated events) is
+            // all-or-nothing. Persistence itself is per-key, not transactional, so a mid-batch
+            // failure can still leave an earlier prefix on disk (it resurfaces on the next load()).
+            persistence?.let { store ->
+                for ((key, value) in entries) store.write(key, PersistedEntry(value, now))
+            }
+            // Then the in-memory commits + fences (none of which throw): fence off any in-flight
+            // fetch, clear the negative-cache record, and stamp a fresh entry per key.
+            for ((key, value) in entries) {
+                fence(key)
+                negative.remove(key)
+                val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet())
+                memory.put(key, entry)
+                committed[key] = entry
+            }
+        }
+        // One broadcast per committed key, outside the lock (like put) so a slow collector can't
+        // stall it; every memory commit above has a matching emission here.
+        for ((key, entry) in committed) {
+            events.emit(Event.Updated(key, entry.value, Origin.LOCAL, now, entry.sequence))
+        }
+    }
+
     override suspend fun invalidate(key: K) {
         checkOpen()
         // The drop takes a slot in the same commit order as writes: bus emission happens
