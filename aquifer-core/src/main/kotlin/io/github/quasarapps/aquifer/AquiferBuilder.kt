@@ -90,11 +90,13 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * guarantee (single-flight dedup, fencing, negative caching, persistence, events) applies
      * per key, unchanged — batching is purely a fetch-transport optimization. To also
      * auto-coalesce individual fetches, use the [batchFetcher] overload that takes a
-     * `coalesceWindow`.
+     * `coalesceWindow`. The reactive and warm-up batch reads are [Aquifer.streamMany] and
+     * [Aquifer.prefetchAll].
      *
-     * The store's [retry] policy wraps single-key fetches (including the batch of one a `get`
-     * makes here) but **not** the multi-key call [Aquifer.getAll] issues — add retry inside
-     * [fetch] if you need it. Whole-batch retry: RFC #29.
+     * The store's [retry] policy wraps both single-key fetches (including the batch of one a
+     * `get` makes here) and the multi-key call [Aquifer.getAll] issues — a retryable transport
+     * failure re-runs the whole batch with backoff (omitted keys are definitive misses, never
+     * retried).
      */
     public fun batchFetcher(fetch: suspend (keys: Set<K>) -> Map<K, V>) {
         batchFetcher = fetch
@@ -112,8 +114,8 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
      * always dispatches its own keys immediately, regardless of the window.
      *
      * Each coalesced single-key fetch is still retried by the store's [retry] policy,
-     * re-entering the next window; the multi-key call `getAll` issues is not — add retry inside
-     * [fetch] if you need it. Whole-batch retry: RFC #29.
+     * re-entering the next window; the multi-key call [Aquifer.getAll] issues is retried too —
+     * a retryable transport failure re-runs the whole batch with backoff.
      *
      * @param coalesceWindow how long to gather keys before dispatching a batch; must be
      *   positive and finite (use the single-argument [batchFetcher] for no coalescing).

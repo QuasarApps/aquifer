@@ -167,6 +167,17 @@ Every per-key guarantee — single-flight dedup, mutation fencing, negative cach
 persistence — holds exactly as for `get`; batching is purely a transport optimization, and an
 individual `get(id)` over a `batchFetcher` is just a batch of one.
 
+The reactive and warm-up twins batch the same way: `streamMany(ids)` combines the per-key streams
+into one `Flow<Map<UserId, DataState<User>>>` — per-item loading/content/failure coherence, with
+the misses fetched in a single call — and `prefetch`'s plural, `prefetchAll(ids)`, warms many keys
+in one call, fire-and-forget. A retryable failure of the batch call re-runs the whole batch under
+the store's `retry` policy.
+
+```kotlin
+val states: Flow<Map<UserId, DataState<User>>> = users.streamMany(visibleIds)  // one batched fetch, per-item state
+users.prefetchAll(nextPageIds)                                                 // warm the next page, returns instantly
+```
+
 Add a `coalesceWindow` and even *unrelated* `get`/`stream`/`prefetch` calls auto-batch — the
 DataLoader pattern, with no change to call sites:
 

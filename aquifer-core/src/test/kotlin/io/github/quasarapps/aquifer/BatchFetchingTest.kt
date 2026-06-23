@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
@@ -195,7 +196,7 @@ class BatchFetchingTest {
     }
 
     @Test
-    fun `the retry policy wraps a single fetch but not the multi-key batch call`() = runTest {
+    fun `the retry policy wraps both a single fetch and the multi-key batch call`() = runTest {
         var singleAttempts = 0
         var batchAttempts = 0
         val store = aquifer<String, Int> {
@@ -214,9 +215,81 @@ class BatchFetchingTest {
         assertFailsWith<IOException> { store.get("a") }
         assertEquals(3, singleAttempts)
 
-        // The multi-key batch call is not retried in this release: one attempt, all keys drop.
+        // The multi-key batch call is retried too (whole-batch retry, RFC #29 phase 2): 3
+        // attempts, then every key drops to its (absent) cached fallback.
         assertEquals(emptyMap(), store.getAll(setOf("x", "y")))
-        assertEquals(1, batchAttempts)
+        assertEquals(3, batchAttempts)
+    }
+
+    @Test
+    fun `whole-batch retry re-runs the entire batch and fires onFetchRetried per key`() = runTest {
+        val batches = mutableListOf<Set<String>>()
+        val retried = mutableListOf<Pair<String, Int>>()
+        var attempts = 0
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            retry {
+                maxAttempts = 3
+                initialDelay = 1.milliseconds
+            }
+            batchFetcher { keys ->
+                batches += keys
+                if (++attempts < 3) throw IOException("transient") else keys.associateWith { it.length }
+            }
+            events(object : AquiferEvents<String> {
+                override fun onFetchRetried(key: String, attempt: Int, error: Throwable, nextDelay: Duration) {
+                    retried += key to attempt
+                }
+            })
+        }
+
+        assertEquals(mapOf("a" to 1, "bb" to 2), store.getAll(setOf("a", "bb")))
+        assertEquals(3, attempts, "two transient failures, then success")
+        // Retry-all: the whole batch (both keys) re-ran on every attempt, never a failed slice.
+        assertEquals(List(3) { setOf("a", "bb") }, batches)
+        // onFetchRetried fired for every key on each of the two retries.
+        assertEquals(setOf("a" to 1, "bb" to 1, "a" to 2, "bb" to 2), retried.toSet())
+    }
+
+    @Test
+    fun `a key omitted from a successful batch is a definitive miss, never retried`() = runTest {
+        var attempts = 0
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            retry {
+                maxAttempts = 3
+                initialDelay = 1.milliseconds
+            }
+            // The batch succeeds but omits "miss"; omission is a miss, not a transient failure.
+            batchFetcher { keys ->
+                attempts++
+                keys.filter { it != "miss" }.associateWith { it.length }
+            }
+        }
+
+        assertEquals(mapOf("a" to 1), store.getAll(setOf("a", "miss")))
+        assertEquals(1, attempts, "a successful-but-partial batch is not retried")
+    }
+
+    @Test
+    fun `a terminal batch failure reports the batch attempt count to onFetchFailed per key`() = runTest {
+        val failures = mutableMapOf<String, Int>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            retry {
+                maxAttempts = 3
+                initialDelay = 1.milliseconds
+            }
+            batchFetcher { throw IOException("down") }
+            events(object : AquiferEvents<String> {
+                override fun onFetchFailed(key: String, error: Throwable, attempts: Int) {
+                    failures[key] = attempts
+                }
+            })
+        }
+
+        assertEquals(emptyMap(), store.getAll(setOf("a", "b")))
+        assertEquals(mapOf("a" to 3, "b" to 3), failures, "every key reports all 3 batch attempts")
     }
 
     @Test

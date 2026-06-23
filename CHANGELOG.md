@@ -7,6 +7,31 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — streamMany, prefetchAll & whole-batch retry (batched fetching phase 2, RFC #29)
+
+- `streamMany(keys, freshness = StaleWhileRevalidate): Flow<Map<K, DataState<V>>>`: the reactive
+  twin of `getAll` — a combined flow that re-emits a per-key `DataState` map whenever **any**
+  member key changes, so a list screen renders per-item loading/content/failure coherently from a
+  single collection. The initial fetches of the member keys are batched into one `batchFetcher`
+  call, dispatched immediately (so it batches even without a coalescing window, like `getAll`);
+  without a batch fetcher the keys stream individually (still single-flight-deduped). An empty key
+  set yields a single empty map.
+- `prefetchAll(keys, freshness = CacheFirst)`: the batched, fire-and-forget mirror of `prefetch`
+  (and the write-free twin of `getAll`). Returns immediately; the keys that need loading (freshness
+  and the negative-cache gate decide) are warmed in one `batchFetcher` call in the store's scope.
+  `CacheOnly` is a no-op, a suppressed key stands down (except `NetworkOnly`), and failures are
+  never thrown — they surface through `AquiferEvents`.
+- Whole-batch retry: the store `retry` policy now wraps the multi-key `batchFetcher` call that
+  `getAll`/`streamMany`/`prefetchAll` issue, not just single-key fetches. A retryable transport
+  failure re-runs the **entire** batch (retry-all) with backoff, firing `onFetchRetried` for every
+  key in the batch and reporting the batch's attempt count through each key's `onFetchFailed`. A
+  key the fetcher *omits* from a successful map stays a definitive miss (`BatchKeyMissingException`)
+  and is never retried.
+  - **Behavioral change (pre-1.0):** a transient multi-key batch failure that previously dropped
+    the whole batch after a single attempt is now retried per the configured policy (the prior
+    release deferred this; the default no-retry policy is unaffected).
+- This completes RFC #29 phase 2.
+
 ### Added — coalescing window (batched fetching phase 2, RFC #29)
 
 - `batchFetcher(coalesceWindow, maxBatchSize) { keys -> Map }`: with a positive
@@ -18,7 +43,6 @@ versions may contain breaking changes.
 - A coalesced fetch is still covered by the store `retry` policy — a transient failure
   re-enters the next window. Same-key loads in one window share a slot; a key the fetcher
   omits fails only that key, a throwing fetcher fails that batch.
-- Still to come (RFC #29): `streamMany(keys)`, `prefetchAll(keys)`, and whole-batch retry.
 
 ### Added — batched fetching (phase 1, RFC #29)
 

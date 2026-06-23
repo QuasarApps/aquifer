@@ -90,9 +90,12 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   (`batchFetcher(coalesceWindow, maxBatchSize)`) that auto-batches individual
   `get`/`stream`/`prefetch` fetches: window/size-triggered flush, same-key slot sharing, and
   retry that re-enters the next window. *(M)*
-- [ ] **Batched fetching, phase 2 — remaining** (RFC #29) — `streamMany(keys)`,
-  `prefetchAll(keys)`, and dedicated whole-batch retry (retry-all vs. retry-failed slice, plus
-  per-key `onFetchRetried` event semantics). *(M)*
+- [x] **Batched fetching, phase 2 — remaining** (RFC #29) — shipped `streamMany(keys)` (the
+  reactive twin of `getAll`, with the member keys' initial fetches batched into one immediate
+  call), `prefetchAll(keys)` (the fire-and-forget batch warmup), and whole-batch retry: the store
+  `retry` policy now wraps the multi-key `batchFetcher` call (retry-all — a partial map's omitted
+  keys are definitive misses, never a retried slice), firing `onFetchRetried` per key and
+  reporting the batch's attempt count to each key's `onFetchFailed`. Completes RFC #29 phase 2. *(M)*
 - [ ] **Conditional batch fetching** — a validator-aware `batchFetcher` variant so ETag/304
   revalidation composes with batching; deferred from RFC #29 as out of scope for v1 (a plain
   batch fetcher carries no per-key validators). *(M)*

@@ -68,6 +68,33 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     ): Flow<DataState<V>>
 
     /**
+     * Observes many [keys] at once as a combined [Flow] of `Map<K, DataState<V>>` — the
+     * reactive twin of [getAll]. Each key is observed by its own [stream]; the combined map
+     * re-emits whenever **any** key's state changes, so a list screen renders per-item
+     * loading/content/failure coherently from a single collection.
+     *
+     * The initial fetches of the member keys are **batched**: the keys that need loading
+     * (decided per [freshness], exactly as [getAll] decides) are collapsed into one
+     * [batch fetcher][AquiferBuilder.batchFetcher] call, dispatched immediately — so collecting
+     * `streamMany` of 50 missing keys is one backend round-trip, not 50, even without a
+     * coalescing window. Without a batch fetcher the keys are streamed individually (still
+     * single-flight-deduped). Every per-key guarantee (fencing, negative caching, persistence,
+     * events) is unchanged; batching is purely a fetch-transport optimization.
+     *
+     * The emitted map carries an entry for every key in [keys] once each has produced its
+     * first state — whatever the corresponding [stream] would emit: cached `Content`, `Loading`
+     * on a miss that will fetch, `Empty` for a `CacheOnly` miss, or `Failure`. An empty [keys]
+     * yields a single empty map. Like [stream], collect it in a scope matching your UI lifecycle.
+     *
+     * @param freshness strategy for each member key; defaults to
+     *   [Freshness.StaleWhileRevalidate].
+     */
+    public fun streamMany(
+        keys: Set<K>,
+        freshness: Freshness = Freshness.StaleWhileRevalidate,
+    ): Flow<Map<K, DataState<V>>>
+
+    /**
      * Returns the value for [key] as a one-shot call, honouring [freshness]
      * (default [Freshness.CacheFirst]).
      *
@@ -114,6 +141,23 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
     public fun prefetch(key: K, freshness: Freshness = Freshness.CacheFirst)
 
     /**
+     * Warms the cache for many [keys] at once without blocking — the batched, fire-and-forget
+     * mirror of [prefetch] (and the write-free twin of [getAll]). Returns immediately; the keys
+     * that need loading (decided per [freshness], exactly as [prefetch] decides) are collapsed
+     * into a single [batch fetcher][AquiferBuilder.batchFetcher] call in the store's scope, and
+     * the results land in the cache for the next [get]/[getAll]/[stream].
+     *
+     * Honours [freshness] for the *decision to fetch* — by default [Freshness.CacheFirst], so
+     * already-fresh keys trigger nothing — shares each in-flight fetch with any concurrent
+     * [get]/[getAll]/[stream]/[prefetch] of the same key, and stands down per key under negative
+     * caching (except [Freshness.NetworkOnly], the explicit-demand strategy).
+     * [Freshness.CacheOnly] is a no-op. Failures are never thrown to the caller; they surface
+     * through [AquiferEvents] like any other fetch. Calling on a closed store throws
+     * [IllegalStateException].
+     */
+    public fun prefetchAll(keys: Set<K>, freshness: Freshness = Freshness.CacheFirst)
+
+    /**
      * Resolves many [keys] at once, collapsing their network fetches into a single backend
      * call when the store has a [batch fetcher][AquiferBuilder.batchFetcher] — the cure for
      * the N+1 fetch on list screens. Each key is resolved per [freshness] exactly as [get]
@@ -130,12 +174,12 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * [Freshness.CacheFirst] for that case). Without a batch fetcher the keys are fetched
      * individually (still single-flight-deduped). Defaults to [Freshness.CacheFirst].
      *
-     * Retry note: the store's `retry` policy wraps each *single-key* fetch (including the
-     * batch-of-one a `get` makes over a batch fetcher), but **not** the multi-key batch call
-     * `getAll` issues — a transient transport blip drops that batch (each key falls back to
-     * its cached value or is omitted). Put retry inside your
-     * [batch fetcher][AquiferBuilder.batchFetcher] if you need it; whole-batch retry is
-     * planned (RFC #29).
+     * Retry: the store's `retry` policy wraps both each *single-key* fetch (including the
+     * batch-of-one a `get` makes over a batch fetcher) and the *multi-key* batch call `getAll`
+     * issues — a retryable transport failure re-runs the whole batch with backoff, firing
+     * [AquiferEvents.onFetchRetried] per key. Keys the fetcher *omits* from an otherwise
+     * successful map are definitive misses, not transient failures, so they are never retried
+     * (each falls back to its cached value, or is omitted from the result).
      *
      * @throws IllegalStateException if the store is closed.
      */
