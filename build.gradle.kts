@@ -29,6 +29,7 @@ subprojects {
 // Aggregated API docs for the published modules: ./gradlew dokkaGenerate
 dependencies {
     dokka(project(":aquifer-core"))
+    dokka(project(":aquifer-test"))
     dokka(project(":aquifer-persistence-file"))
     dokka(project(":aquifer-android"))
     dokka(project(":aquifer-compose"))

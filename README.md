@@ -367,6 +367,24 @@ fun `stale profile is served then revalidated`() = runTest {
 }
 ```
 
+The `FakeClock` and `settle()` helpers above ship in **`aquifer-test`** (add it as a
+`testImplementation` dependency). That module also provides `fakeAquifer` — a programmable,
+in-memory store for unit-testing a repository that depends on an `Aquifer`, without standing up the
+real engine. Script per-key values, failures, and delays, then assert how often each key was
+fetched:
+
+```kotlin
+val users = fakeAquifer<String, User>(backgroundScope) {
+    seed("ada" to User("ada"))       // already cached, no fetch
+    returns("grace", User("grace"))  // fetched on demand
+    failsWith("bad", IOException())  // fetch fails
+}
+
+val repo = UserRepository(users)
+assertEquals(User("grace"), repo.load("grace"))
+assertEquals(1, users.fetchCount("grace")) // assert it fetched, exactly once
+```
+
 ## Design notes
 
 - **Single-flight fetches.** A per-key registry of in-flight `Deferred`s collapses concurrent

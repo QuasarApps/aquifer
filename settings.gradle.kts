@@ -29,6 +29,7 @@ dependencyResolutionManagement {
 rootProject.name = "aquifer"
 
 include(":aquifer-core")
+include(":aquifer-test")
 include(":aquifer-persistence-file")
 include(":aquifer-android")
 include(":aquifer-compose")

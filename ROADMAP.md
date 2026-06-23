@@ -131,10 +131,11 @@ The engine's guarantees deserve machine-checked evidence.
   the issue, with the proof written down (the naive evictions are provably unsound). *(M)*
 - [ ] **`stats()` snapshot API** — hits, misses, evictions, in-flight count, per-store; the
   numbers `AquiferEvents` can't aggregate. *(S)*
-- [ ] **`aquifer-test` module** — a published, programmable fake `Aquifer` (scripted
-  values/failures/delays, assertable fetch counts) plus the deterministic `WallClock` and the
-  `settle()` helper, so consuming apps can unit-test their repositories the way this library
-  tests itself — the unit-test sibling of `previewAquifer`. *(M)*
+- [x] **`aquifer-test` module** — shipped: a published, programmable fake `Aquifer`
+  (`fakeAquifer(scope) { … }` with scripted values/failures/delays and assertable fetch counts,
+  re-scriptable at runtime) plus the deterministic `FakeClock` and the `settle()` helper, so
+  consuming apps can unit-test their repositories the way this library tests itself — the
+  unit-test sibling of `previewAquifer`. *(M)*
 - [ ] **Coverage gate** — Kover + a CI threshold + badge. *(S)*
 - [ ] **Docs site** — publish the aggregated Dokka output via GitHub Pages on release. *(S)*
 - [ ] **Sample Android app** — a small Compose app demoing airplane-mode survival,
