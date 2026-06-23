@@ -189,6 +189,18 @@ batchFetcher(coalesceWindow = 10.milliseconds) { ids -> api.fetchUsers(ids) }
 Fetches landing within the window collapse into one call (dispatched when the window elapses
 or once `maxBatchSize` keys accumulate); a transient failure re-enters the next window.
 
+When the backend speaks ETags, `conditionalBatchFetcher { validators -> … }` composes 304
+revalidation with batching: each key arrives mapped to its cached validator and may come back
+`NotModified` (kept and re-aged, never re-downloaded) — the batch mirror of `conditionalFetcher`.
+
+```kotlin
+conditionalBatchFetcher { validators ->                 // Map<ArticleId, String?>  (id -> ETag)
+    api.fetchArticles(validators).mapValues { (_, r) ->
+        if (r.status == 304) FetchResult.NotModified else FetchResult.Fresh(r.body, validator = r.etag)
+    }
+}
+```
+
 ### Surviving process death
 
 Add a `SourceOfTruth` and cached data outlives the process: cold starts render from disk

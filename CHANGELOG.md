@@ -7,6 +7,23 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — conditional batch fetching (RFC #29)
+
+- `conditionalBatchFetcher { validators: Map<K, String?> -> Map<K, FetchResult<V>> }`: the batch
+  mirror of `conditionalFetcher`, so ETag/304 revalidation composes with batched fetching. Each
+  requested key arrives mapped to its cached validator (an `ETag`/`Last-Modified` token, or
+  `null` when nothing usable is cached), and the fetcher answers per key with
+  `FetchResult.Fresh(value, validator)` or `FetchResult.NotModified` — a 304 keeps the cached
+  value and re-ages it, the payload never crossing the network.
+  `getAll`/`streamMany`/`prefetchAll` dispatch one call through it; an individual
+  `get`/`stream`/`prefetch` uses it as a batch of one (passing that key's validator, exactly as
+  `fresh()` does for a single conditional fetch).
+- A key absent from the returned map fails only that key (`BatchKeyMissingException`);
+  `NotModified` for a key with no cached validator is a contract violation that fails that key; a
+  throwing fetcher fails the whole batch and is retried by the store `retry` policy (whole-batch
+  retry), exactly like `batchFetcher`. Mutually exclusive with `fetcher`/`conditionalFetcher`/
+  `batchFetcher` (configure exactly one). The auto-coalescing window stays `batchFetcher`-only.
+
 ### Added — streamMany, prefetchAll & whole-batch retry (batched fetching phase 2, RFC #29)
 
 - `streamMany(keys, freshness = StaleWhileRevalidate): Flow<Map<K, DataState<V>>>`: the reactive

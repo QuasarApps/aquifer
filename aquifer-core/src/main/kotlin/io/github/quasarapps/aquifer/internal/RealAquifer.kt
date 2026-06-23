@@ -56,6 +56,8 @@ internal class RealAquifer<K : Any, V : Any>(
     private val conditional: Boolean,
     /** Resolves many keys in one backend call; `null` means [getAll] fetches keys individually. */
     private val batchFetcher: (suspend (keys: Set<K>) -> Map<K, V>)? = null,
+    /** Validator-aware batch fetcher (ETag/304 batched); mutually exclusive with [batchFetcher]. */
+    private val conditionalBatchFetcher: (suspend (validators: Map<K, String?>) -> Map<K, FetchResult<V>>)? = null,
     /** Auto-coalescing window for single-key fetches; [Duration.ZERO] disables it. */
     private val coalesceWindow: Duration = Duration.ZERO,
     /** Dispatch a coalesced batch early once this many distinct keys accumulate. */
@@ -526,25 +528,26 @@ internal class RealAquifer<K : Any, V : Any>(
     }
 
     /**
-     * Registers a single-flight fetch for each of [keys] and dispatches the one shared
-     * [batchFetcher] call (or independent single fetches when none is configured), **without
-     * awaiting** — returning the per-key [Deferred]s. [getAll] (via [batchRefresh]) awaits them
-     * for its result map; the fire-and-forget callers ([prefetchAll], [streamMany]'s pre-trigger)
-     * ignore them — the fetches still run, commit, and broadcast in the store scope, and a
-     * per-key failure is reported through [AquiferEvents] and held in its (un-awaited) deferred.
-     * Keys already in flight as single fetches are joined, not re-requested.
+     * Registers a single-flight fetch for each of [keys] and dispatches the one shared batch
+     * call — a [batchFetcher] or a [conditionalBatchFetcher] — (or independent single fetches
+     * when neither is configured), **without awaiting** — returning the per-key [Deferred]s.
+     * [getAll] (via [batchRefresh]) awaits them for its result map; the fire-and-forget callers
+     * ([prefetchAll], [streamMany]'s pre-trigger) ignore them — the fetches still run, commit,
+     * and broadcast in the store scope, and a per-key failure is reported through [AquiferEvents]
+     * and held in its (un-awaited) deferred. Keys already in flight as single fetches are joined,
+     * not re-requested.
      */
     private fun startBatch(keys: Set<K>): Map<K, Deferred<V>> {
         if (keys.isEmpty()) return emptyMap()
-        val batch = batchFetcher
         val deferreds = LinkedHashMap<K, Deferred<V>>()
-        if (batch == null) {
+        if (batchFetcher == null && conditionalBatchFetcher == null) {
             for (key in keys) deferreds[key] = refresh(key)
         } else {
             // A CompletableDeferred (not a lazy async, whose await() would start it on the
             // first slice) so the one call dispatches strictly after every slice is registered
-            // in `inFlight` — robust even on a multi-threaded dispatcher.
-            val batchResult = CompletableDeferred<Map<K, V>>()
+            // in `inFlight` — robust even on a multi-threaded dispatcher. The shared result is a
+            // per-key FetchResult, so a conditional batch's NotModified rides the same channel.
+            val batchResult = CompletableDeferred<Map<K, FetchResult<V>>>()
             // Published by the shared retry loop; each slice reads it so a terminal per-key
             // failure reports the batch's true attempt count through onFetchFailed.
             val batchAttempts = AtomicInteger(1)
@@ -557,12 +560,14 @@ internal class RealAquifer<K : Any, V : Any>(
                         // Resolved or threw, surface how many attempts the batch took.
                         setAttempts(batchAttempts.get())
                     }
-                    FetchResult.Fresh(result[key] ?: throw BatchKeyMissingException(key))
+                    // The slice returns its FetchResult; refreshWith's resolve() handles Fresh
+                    // vs NotModified against the key's prior entry, exactly as the single path.
+                    result[key] ?: throw BatchKeyMissingException(key)
                 }
             }
             // Request exactly the keys whose slice we started; a key that joined an existing
             // single fetch awaits that one, not batchResult, so it must not be in the call.
-            if (started.isNotEmpty()) dispatchBatch(started, batch, batchResult, batchAttempts)
+            if (started.isNotEmpty()) dispatchBatch(started, batchResult, batchAttempts)
         }
         return deferreds
     }
@@ -574,13 +579,12 @@ internal class RealAquifer<K : Any, V : Any>(
      */
     private fun dispatchBatch(
         keys: Set<K>,
-        batch: suspend (Set<K>) -> Map<K, V>,
-        batchResult: CompletableDeferred<Map<K, V>>,
+        batchResult: CompletableDeferred<Map<K, FetchResult<V>>>,
         attempts: AtomicInteger,
     ) {
         scope.launch {
             try {
-                batchResult.complete(fetchBatchWithRetry(keys, batch, attempts))
+                batchResult.complete(fetchBatchWithRetry(keys, attempts))
             } catch (cancellation: CancellationException) {
                 batchResult.cancel(cancellation)
                 throw cancellation
@@ -599,15 +603,11 @@ internal class RealAquifer<K : Any, V : Any>(
      * path, and publishes the running attempt count through [attempts] so a terminal failure's
      * [AquiferEvents.onFetchFailed] reports it per key. Cancellation is never retried.
      */
-    private suspend fun fetchBatchWithRetry(
-        keys: Set<K>,
-        batch: suspend (Set<K>) -> Map<K, V>,
-        attempts: AtomicInteger,
-    ): Map<K, V> {
+    private suspend fun fetchBatchWithRetry(keys: Set<K>, attempts: AtomicInteger): Map<K, FetchResult<V>> {
         var attempt = 1
         while (true) {
             try {
-                return batch(keys)
+                return runBatch(keys)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
@@ -618,6 +618,23 @@ internal class RealAquifer<K : Any, V : Any>(
                 delay(nextDelay)
             }
         }
+    }
+
+    /**
+     * The one shared multi-key backend call, as a per-key [FetchResult]. A
+     * [conditionalBatchFetcher] receives each key's cached validator (gathered here from the
+     * freshest local entry) and may answer [FetchResult.NotModified] per key; a plain
+     * [batchFetcher] receives the key set and returns values, wrapped as [FetchResult.Fresh].
+     * Exactly one of the two is configured (the builder enforces it).
+     */
+    private suspend fun runBatch(keys: Set<K>): Map<K, FetchResult<V>> {
+        conditionalBatchFetcher?.let { batch ->
+            val validators = LinkedHashMap<K, String?>(keys.size)
+            for (key in keys) validators[key] = load(key)?.entry?.validator
+            return batch(validators)
+        }
+        val batch = checkNotNull(batchFetcher) { "runBatch requires a batch fetcher" }
+        return batch(keys).mapValues { FetchResult.Fresh(it.value) }
     }
 
     override suspend fun put(key: K, value: V) {

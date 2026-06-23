@@ -33,6 +33,7 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
     private var fetcher: (suspend (key: K) -> V)? = null
     private var conditionalFetcher: (suspend (key: K, validator: String?) -> FetchResult<V>)? = null
     private var batchFetcher: (suspend (keys: Set<K>) -> Map<K, V>)? = null
+    private var conditionalBatchFetcher: (suspend (validators: Map<K, String?>) -> Map<K, FetchResult<V>>)? = null
     private var coalesceWindow: Duration = Duration.ZERO
     private var maxBatchSize: Int = Int.MAX_VALUE
     private val memoryCache = MemoryCacheConfig()
@@ -135,6 +136,35 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         this.maxBatchSize = maxBatchSize
     }
 
+    /**
+     * A [batchFetcher] that is also **conditional** — the batch mirror of [conditionalFetcher],
+     * so ETag/304 revalidation composes with batching. Given the keys that need loading each
+     * mapped to their cached [validator][PersistedEntry.validator] (`null` when nothing usable
+     * is cached), it returns a [FetchResult] per key: [FetchResult.Fresh] with a new value (and
+     * optional new validator), or [FetchResult.NotModified] to keep the cached value and re-age
+     * it — the payload never crosses the network.
+     *
+     * ```
+     * conditionalBatchFetcher { validators ->          // Map<ArticleId, String?>  (id -> ETag)
+     *     api.fetchArticles(validators).mapValues { (_, r) ->
+     *         if (r.status == 304) FetchResult.NotModified
+     *         else FetchResult.Fresh(r.body, validator = r.etag)
+     *     }
+     * }
+     * ```
+     *
+     * A key absent from the returned map fails only that key ([BatchKeyMissingException]); a
+     * throwing fetcher fails the whole batch (and is retried by the store [retry] policy, like
+     * [batchFetcher]). [FetchResult.NotModified] for a key with no cached validator is a contract
+     * violation and fails that key. [Aquifer.getAll]/[Aquifer.streamMany]/[Aquifer.prefetchAll]
+     * dispatch one call through it; an individual `get`/`stream`/`prefetch` uses it as a batch of
+     * one. Configure exactly one of [fetcher], [conditionalFetcher], [batchFetcher], or
+     * [conditionalBatchFetcher]; the auto-coalescing window is [batchFetcher]-only.
+     */
+    public fun conditionalBatchFetcher(fetch: suspend (validators: Map<K, String?>) -> Map<K, FetchResult<V>>) {
+        conditionalBatchFetcher = fetch
+    }
+
     /** Configures the in-memory cache; see [MemoryCacheConfig]. */
     public fun memoryCache(configure: MemoryCacheConfig.() -> Unit) {
         memoryCache.configure()
@@ -198,18 +228,23 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         val plain = fetcher
         val conditional = conditionalFetcher
         val batch = batchFetcher
-        require(listOfNotNull(plain, conditional, batch).size <= 1) {
-            "Configure at most one of fetcher { }, conditionalFetcher { }, or batchFetcher { }"
+        val conditionalBatch = conditionalBatchFetcher
+        require(listOfNotNull(plain, conditional, batch, conditionalBatch).size <= 1) {
+            "Configure at most one of fetcher { }, conditionalFetcher { }, batchFetcher { }, " +
+                "or conditionalBatchFetcher { }"
         }
         val fetch: suspend (key: K, validator: String?) -> FetchResult<V> = when {
             conditional != null -> conditional
             plain != null -> { key, _ -> FetchResult.Fresh(plain(key)) }
             // A single-key read over a batch fetcher is just a batch of one.
-            batch != null -> { key, _ ->
-                FetchResult.Fresh(batch(setOf(key))[key] ?: throw BatchKeyMissingException(key))
+            batch != null -> { key, _ -> FetchResult.Fresh(batch(setOf(key))[key].orKeyMissing(key)) }
+            // Same, conditionally: pass the key's validator through and return its FetchResult.
+            conditionalBatch != null -> { key, validator ->
+                conditionalBatch(mapOf(key to validator))[key].orKeyMissing(key)
             }
             else -> throw IllegalArgumentException(
-                "aquifer { } requires a fetcher { }, conditionalFetcher { }, or batchFetcher { }",
+                "aquifer { } requires a fetcher { }, conditionalFetcher { }, batchFetcher { }, " +
+                    "or conditionalBatchFetcher { }",
             )
         }
         val negative = if (negativeCacheEnabled) {
@@ -223,8 +258,9 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
         }
         return RealAquifer(
             fetcher = fetch,
-            conditional = conditional != null,
+            conditional = conditional != null || conditionalBatch != null,
             batchFetcher = batch,
+            conditionalBatchFetcher = conditionalBatch,
             coalesceWindow = coalesceWindow,
             maxBatchSize = maxBatchSize,
             negativeCache = negative,
@@ -238,6 +274,9 @@ public class AquiferBuilder<K : Any, V : Any> internal constructor() {
             listener = events,
         )
     }
+
+    /** A batch result for [key], or a per-key [BatchKeyMissingException] when the batch omitted it. */
+    private fun <R> R?.orKeyMissing(key: K): R = this ?: throw BatchKeyMissingException(key)
 }
 
 /** Configuration for the in-memory LRU cache. */

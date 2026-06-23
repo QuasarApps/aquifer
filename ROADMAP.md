@@ -96,9 +96,13 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   `retry` policy now wraps the multi-key `batchFetcher` call (retry-all — a partial map's omitted
   keys are definitive misses, never a retried slice), firing `onFetchRetried` per key and
   reporting the batch's attempt count to each key's `onFetchFailed`. Completes RFC #29 phase 2. *(M)*
-- [ ] **Conditional batch fetching** — a validator-aware `batchFetcher` variant so ETag/304
-  revalidation composes with batching; deferred from RFC #29 as out of scope for v1 (a plain
-  batch fetcher carries no per-key validators). *(M)*
+- [x] **Conditional batch fetching** — shipped as
+  `conditionalBatchFetcher { validators -> Map<K, FetchResult> }`, the batch mirror of
+  `conditionalFetcher`: each key arrives mapped to its cached validator and may answer
+  `NotModified`, so ETag/304 composes with `getAll`/`streamMany`/`prefetchAll` (and batch-of-one
+  single reads). Whole-batch retry, per-key miss (`BatchKeyMissingException`), and the
+  `NotModified`-without-validator contract violation all carry over; the auto-coalescing window
+  stays `batchFetcher`-only. *(M)*
 - [ ] **#12 — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
   commit throughput against a real file store; implement per-key lock striping only if the
   numbers justify it (constraints documented in the issue). *(M–L)*
