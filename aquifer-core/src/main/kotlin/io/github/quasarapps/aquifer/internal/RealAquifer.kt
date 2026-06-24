@@ -458,7 +458,12 @@ internal class RealAquifer<K : Any, V : Any>(
             val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
             if (entry != null) cached[key] = entry.value
             val usable = entry != null && !isExpired(key, entry.writtenAtMillis)
-            recordRead(freshness, present = entry != null, usable = usable)
+            // getAll awaits a stale SWR refresh (get/stream serve stale immediately and revalidate
+            // in the background), so for stats a stale-but-present SWR key here is served via an
+            // awaited fetch — a miss. Classify SWR like CacheFirst on this path only.
+            val readStrategy =
+                if (freshness == Freshness.StaleWhileRevalidate) Freshness.CacheFirst else freshness
+            recordRead(readStrategy, present = entry != null, usable = usable)
             if (shouldFetch(key, freshness, entry, report = true)) toFetch += key
         }
         val fetched = batchRefresh(toFetch)

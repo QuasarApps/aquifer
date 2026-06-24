@@ -102,6 +102,27 @@ class StatsTest {
     }
 
     @Test
+    fun `getAll counts a stale SWR key as a miss but a fresh one as a hit`() = runTest {
+        // Unlike get/stream, getAll awaits the SWR refresh of a stale key, so it's served via a
+        // fetch (a miss) — only a still-fresh SWR key is served from cache (a hit).
+        val clock = FakeClock()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            clock(clock)
+            fetcher { 0 }
+            freshness { timeToLive = 1.minutes }
+        }
+        store.put("stale", 1) // written at t0
+        clock.advanceBy(2.minutes) // "stale" is now past its TTL
+        store.put("fresh", 2) // written fresh at t0 + 2m
+
+        store.getAll(setOf("fresh", "stale"), Freshness.StaleWhileRevalidate)
+
+        assertEquals(1, store.stats().hits) // "fresh"
+        assertEquals(1, store.stats().misses) // "stale" — awaited refresh
+    }
+
+    @Test
     fun `a stream counts its initial read`() = runTest {
         val store = aquifer<String, Int> {
             scope(backgroundScope)
