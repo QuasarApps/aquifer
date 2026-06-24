@@ -1,5 +1,7 @@
 package io.github.quasarapps.aquifer.internal
 
+import java.util.concurrent.atomic.AtomicLong
+
 /**
  * A thread-safe LRU cache. Reads count as use: `get` refreshes an entry's recency, and
  * inserting beyond [maxEntries] evicts the least recently used entry.
@@ -24,11 +26,14 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
     )
 
     private val lock = Any()
-    private var evictionCount = 0L
+
+    // Incremented under the monitor (inside removeEldestEntry, during put), read lock-free so a
+    // stats() snapshot never contends with cache traffic — consistent with hits/misses.
+    private val evictionCount = AtomicLong(0)
     private val entries = object : LinkedHashMap<K, Entry<V>>(INITIAL_CAPACITY, LOAD_FACTOR, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>): Boolean {
             val evict = size > maxEntries
-            if (evict) evictionCount++
+            if (evict) evictionCount.incrementAndGet()
             return evict
         }
     }
@@ -50,8 +55,8 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
     /** Snapshot of the resident keys; iterating the key set does not count as LRU use. */
     fun keys(): Set<K> = synchronized(lock) { LinkedHashSet(entries.keys) }
 
-    /** Entries dropped by LRU eviction since construction. */
-    fun evictions(): Long = synchronized(lock) { evictionCount }
+    /** Entries dropped by LRU eviction since construction; a lock-free read for stats(). */
+    fun evictions(): Long = evictionCount.get()
 
     private companion object {
         const val INITIAL_CAPACITY = 16
