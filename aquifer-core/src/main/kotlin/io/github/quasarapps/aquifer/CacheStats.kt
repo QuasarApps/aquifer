@@ -8,7 +8,9 @@ package io.github.quasarapps.aquifer
  * @property misses caller reads with no usable cached value, which went to the network (or, for
  *   [Freshness.CacheOnly], found nothing).
  * @property evictions entries dropped from the in-memory cache by LRU since the store opened.
- * @property inFlight fetches running at the instant the snapshot was taken — a gauge, not a total.
+ * @property inFlight size of the single-flight fetch registry at the instant the snapshot was
+ *   taken — a gauge, not a total. Counts *joinable* in-flight fetches; a fetch fenced off by
+ *   invalidation leaves the registry while its coroutine may still be finishing.
  */
 public data class CacheStats(
     public val hits: Long,

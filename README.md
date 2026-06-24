@@ -342,8 +342,8 @@ It lists memory only — persisted-but-evicted keys aren't included — and retu
 not a live view.
 
 `stats()` is the counters companion — hit/miss totals, LRU evictions, and the current in-flight
-fetch count, the aggregate numbers the event hooks above can't give you, for hit-rate dashboards
-and cache tuning (also non-suspending and I/O-free):
+fetch-registry size, the aggregate numbers the event hooks above can't give you, for hit-rate
+dashboards and cache tuning (also non-suspending and I/O-free):
 
 ```kotlin
 val s = users.stats()

@@ -254,9 +254,9 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
 
     /**
      * A non-suspending snapshot of this store's cache counters — hit/miss totals, LRU evictions,
-     * and the current in-flight fetch count — the aggregate numbers [AquiferEvents] can't give you,
-     * for hit-rate dashboards and cache tuning. Like [snapshot] it never suspends, never touches
-     * persistence, and is safe to call anytime, including on a closed store.
+     * and the current in-flight fetch-registry size — the aggregate numbers [AquiferEvents] can't
+     * give you, for hit-rate dashboards and cache tuning. Like [snapshot] it never suspends, never
+     * touches persistence, and is safe to call anytime, including on a closed store.
      *
      * A **hit** is a caller read ([get], [getAll] per key, or a [stream]'s initial emission) served
      * from a cached value without awaiting a fetch; a **miss** is such a read with no usable cached
