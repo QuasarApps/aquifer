@@ -115,8 +115,12 @@ Meet apps where their storage already is.
   default. *(M)*
 - [ ] **SQLDelight adapter** — queryable persistence and the natural stepping stone to
   multiplatform. *(M)*
-- [ ] **Encryption hook** — a pluggable encrypt/decrypt seam on the file store (Tink-ready)
-  for caching sensitive data. *(M)*
+- [x] **Encryption hook** — shipped as a `cipher: ValueCipher?` on `JsonFileSourceOfTruth`: a
+  two-method `encrypt`/`decrypt` seam applied to each entry's serialized bytes, depending on
+  nothing beyond the JDK so Google Tink's `Aead` (Android Keystore) plugs in through a thin
+  adapter. The on-disk bytes and the `maxBytes` budget are the ciphertext; a `decrypt` that
+  throws `GeneralSecurityException` heals the slot. Composes with bounding, conditional
+  fetching, and `schemaVersion`/`migrate`. *(M)*
 - [x] **Schema-migration helper** — shipped on `JsonFileSourceOfTruth` as `schemaVersion` +
   `migrate(fromVersion, value)`: writes are stamped with the current version, and an entry read
   back at a lower version is passed to the callback to rewrite its stored JSON to the current

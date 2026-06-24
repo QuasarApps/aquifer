@@ -7,6 +7,20 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — encryption at rest (JsonFileSourceOfTruth)
+
+- `JsonFileSourceOfTruth` gains a `cipher: ValueCipher?` parameter (also on the
+  `jsonFileSourceOfTruth(...)` factory). `ValueCipher` is a two-method `encrypt`/`decrypt` seam
+  applied to each entry's serialized bytes, so sensitive values aren't stored as plaintext JSON.
+  It depends on nothing beyond the JDK, so production crypto — e.g. Google Tink's `Aead` backed
+  by the Android Keystore — plugs in through a thin adapter. The on-disk bytes (and the
+  `maxBytes` budget) are the ciphertext, so a nonce/tag is accounted for at its real size, and a
+  `decrypt` that throws `java.security.GeneralSecurityException` (wrong key, tampered or
+  truncated file) heals the slot and refetches like any other corrupt entry. Encryption composes
+  with bounding, conditional fetching (validators ride inside the encrypted envelope), and
+  `schemaVersion`/`migrate` (migration sees the decrypted tree). `null` (the default) stores
+  plaintext, unchanged.
+
 ### Added — schema migration (JsonFileSourceOfTruth)
 
 - `JsonFileSourceOfTruth` gains `schemaVersion: Int = 0` and

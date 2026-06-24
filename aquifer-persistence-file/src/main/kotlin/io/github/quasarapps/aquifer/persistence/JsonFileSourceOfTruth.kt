@@ -21,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.CoroutineContext
@@ -29,7 +30,7 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.readText
+import kotlin.io.path.readBytes
 
 /**
  * A [SourceOfTruth] that stores each entry as a JSON file inside [directory].
@@ -122,6 +123,17 @@ import kotlin.io.path.readText
  * writes no version field and migrates nothing — byte-for-byte the pre-migration on-disk
  * format.
  *
+ * ### Encryption at rest
+ *
+ * Pass a [cipher] to transform each entry's serialized bytes before they are written and after
+ * they are read, so sensitive values aren't stored as plaintext JSON. The seam depends on
+ * nothing beyond the JDK; back it with Google Tink's `Aead` (and the Android Keystore) through a
+ * thin [ValueCipher] adapter. The on-disk bytes — and the [maxBytes] budget — are the ciphertext,
+ * so a nonce/tag is accounted for at its real size, and a [ValueCipher.decrypt] that rejects the
+ * bytes (wrong key, tampered or truncated file) heals the slot like any other corrupt entry.
+ * Encryption composes with bounding, conditional fetching (validators are stored in the
+ * encrypted envelope), and [schemaVersion]/[migrate] (migration sees the decrypted tree).
+ *
  * ### Concurrency
  *
  * Safe for concurrent use from multiple coroutines: concurrent writes to a key resolve to one
@@ -144,6 +156,10 @@ import kotlin.io.path.readText
  * @param migrate upgrades an older entry's value JSON to the current [schemaVersion] shape,
  *   given the stored `fromVersion` and the raw value tree; returns the current-shape tree, or
  *   `null` to drop the entry (it refetches). Called only when `fromVersion < schemaVersion`.
+ * @param cipher optional reversible transform applied to each entry's serialized bytes before
+ *   they are written and after they are read — typically encryption. `null` (the default)
+ *   stores plaintext JSON. A [ValueCipher.decrypt] that throws is treated as an unreadable
+ *   entry (healed and refetched), like any other corrupt file. See [ValueCipher].
  */
 // Cohesive store (each helper is one locked or lock-free step of an I/O path) configured by
 // defaulted knobs — a config object for two optional caps would be ceremony.
@@ -158,6 +174,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     private val maxBytes: Long? = null,
     private val schemaVersion: Int = 0,
     private val migrate: (fromVersion: Int, value: JsonElement) -> JsonElement? = { _, _ -> null },
+    private val cipher: ValueCipher? = null,
 ) : SourceOfTruth<K, V> {
 
     init {
@@ -194,7 +211,9 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // Recency is bumped when the read observes the file, not after the decode, so a
             // slow read can't lose its place to an eviction pass racing it.
             recordAccess(file)
-            val stored = json.decodeFromString(rawSerializer, file.readText())
+            val raw = file.readBytes()
+            val plaintext = cipher?.decrypt(raw) ?: raw
+            val stored = json.decodeFromString(rawSerializer, plaintext.decodeToString())
             val element = currentShapeOf(stored.schemaVersion, stored.value) ?: return@withContext heal(file)
             val value = json.decodeFromJsonElement(valueSerializer, element)
             PersistedEntry(value, stored.writtenAtMillis, stored.validator)
@@ -204,6 +223,10 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // Undecodable content: heal the slot so the next write recovers it.
             heal(file)
         } catch (_: IllegalArgumentException) {
+            heal(file)
+        } catch (_: GeneralSecurityException) {
+            // The cipher rejected the bytes (wrong key, tampered or truncated file): the entry
+            // is unrecoverable, so heal the slot exactly like any other corrupt file.
             heal(file)
         } catch (_: IOException) {
             // Possibly transient (permissions, mounts, pressure): report absent but keep the
@@ -219,7 +242,10 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             storedSerializer,
             Stored(entry.writtenAtMillis, entry.value, entry.validator, schemaVersion),
         )
-        val bytes = encoded.encodeToByteArray()
+        val plaintext = encoded.encodeToByteArray()
+        // The on-disk bytes (and the byte budget) are the ciphertext: a cipher that pads or
+        // adds a nonce/tag is accounted for at its real size.
+        val bytes = cipher?.encrypt(plaintext) ?: plaintext
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
         try {
@@ -471,6 +497,7 @@ public inline fun <K : Any, reified V : Any> jsonFileSourceOfTruth(
     maxBytes: Long? = null,
     schemaVersion: Int = 0,
     noinline migrate: (fromVersion: Int, value: JsonElement) -> JsonElement? = { _, _ -> null },
+    cipher: ValueCipher? = null,
 ): SourceOfTruth<K, V> = JsonFileSourceOfTruth(
     directory = directory,
     valueSerializer = json.serializersModule.serializer(),
@@ -480,4 +507,5 @@ public inline fun <K : Any, reified V : Any> jsonFileSourceOfTruth(
     maxBytes = maxBytes,
     schemaVersion = schemaVersion,
     migrate = migrate,
+    cipher = cipher,
 )

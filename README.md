@@ -265,6 +265,23 @@ written) and only for entries below the current `schemaVersion`. Returning `null
 entry — as does one stored at a *higher* version (an app downgrade). A version-0 store (the
 default) writes no version field, so opting in is byte-for-byte the old on-disk format.
 
+To keep sensitive values off disk as plaintext, pass a `cipher` — a two-method `ValueCipher`
+(`encrypt`/`decrypt`) applied to each entry's serialized bytes. The seam depends on nothing
+beyond the JDK, so production crypto plugs in with a thin adapter:
+
+```kotlin
+class TinkValueCipher(private val aead: Aead) : ValueCipher {     // Tink + Android Keystore
+    override fun encrypt(plaintext: ByteArray) = aead.encrypt(plaintext, null)
+    override fun decrypt(ciphertext: ByteArray) = aead.decrypt(ciphertext, null)
+}
+
+jsonFileSourceOfTruth<UserId, User>(directory = dir, cipher = TinkValueCipher(aead))
+```
+
+The on-disk bytes — and the `maxBytes` budget — are the ciphertext, and a `decrypt` that
+throws `GeneralSecurityException` (wrong key, tampered file) heals the slot like any other
+corrupt entry. Encryption composes with bounding, conditional fetching, and schema migration.
+
 ### Retries with backoff and jitter
 
 Fetches are not retried by default. Opt in per store:
