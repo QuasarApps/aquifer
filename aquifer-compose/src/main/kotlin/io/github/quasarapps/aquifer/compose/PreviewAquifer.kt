@@ -2,6 +2,7 @@ package io.github.quasarapps.aquifer.compose
 
 import io.github.quasarapps.aquifer.Aquifer
 import io.github.quasarapps.aquifer.CacheMissException
+import io.github.quasarapps.aquifer.CacheStats
 import io.github.quasarapps.aquifer.DataState
 import io.github.quasarapps.aquifer.Freshness
 import io.github.quasarapps.aquifer.Origin
@@ -114,6 +115,8 @@ private class PreviewAquifer<K : Any, V : Any>(seed: Map<K, V>) : Aquifer<K, V> 
     }
 
     override fun snapshot(): Set<K> = snapshots.value.keys.toSet()
+
+    override fun stats(): CacheStats = CacheStats.EMPTY // previews don't instrument cache counters
 
     override suspend fun revalidateActive() = Unit
 
