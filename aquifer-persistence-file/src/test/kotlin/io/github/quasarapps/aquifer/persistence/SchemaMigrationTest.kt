@@ -112,6 +112,18 @@ class SchemaMigrationTest {
     }
 
     @Test
+    fun `a version-0 store drops an entry stamped at a higher version`() = runTest {
+        // Exercises the configured-version-0 fast path: a future build wrote at v2, but a v0
+        // store can't know that shape, so it drops the entry and heals the slot rather than
+        // serving a future entry as if it were v0 — even when the value still binds to its type.
+        v2Store().write("u1", PersistedEntry(PersonV2("u1", "Ada", "Lovelace"), writtenAtMillis = 10))
+
+        val legacy = JsonFileSourceOfTruth<String, PersonV2>(dir.resolve("p"), PersonV2.serializer())
+        assertNull(legacy.read("u1"))
+        assertTrue(jsonFiles().isEmpty(), "a future-versioned entry should be healed away by a v0 store")
+    }
+
+    @Test
     fun `a migration producing an undecodable tree heals the entry`() = runTest {
         v1Store().write("u1", PersistedEntry(PersonV1("u1", "Ada Lovelace"), writtenAtMillis = 10))
 

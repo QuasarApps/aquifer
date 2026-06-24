@@ -263,7 +263,9 @@ jsonFileSourceOfTruth<UserId, User>(             // User v2: { id, firstName, la
 Migration runs lazily on read (the entry is rewritten in the new format the next time it's
 written) and only for entries below the current `schemaVersion`. Returning `null` drops the
 entry — as does one stored at a *higher* version (an app downgrade). A version-0 store (the
-default) writes no version field, so opting in is byte-for-byte the old on-disk format.
+default) writes no version field under the default `Json` (`encodeDefaults` off), so opting in is
+byte-for-byte the old on-disk format; a caller that supplies `Json { encodeDefaults = true }`
+emits `"schemaVersion":0`, as it already does for other defaulted fields.
 
 To keep sensitive values off disk as plaintext, pass a `cipher` — a two-method `ValueCipher`
 (`encrypt`/`decrypt`) applied to each entry's serialized bytes. The seam depends on nothing

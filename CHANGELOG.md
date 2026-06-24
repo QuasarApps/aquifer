@@ -35,8 +35,10 @@ versions may contain breaking changes.
   for entries stored *below* the current version, which it receives so one callback can step
   across several. Returning `null` drops the entry (healed away, then refetched), as does an
   entry stored *above* the current version (an app downgrade), and a migrated tree that still
-  fails to decode. A version-0 store (the default) writes no version field and migrates nothing
-  — byte-for-byte the previous on-disk format, so existing caches and call sites are unaffected.
+  fails to decode. A version-0 store (the default) writes no version field and migrates nothing;
+  under the default `Json` (`encodeDefaults` off) that is byte-for-byte the previous on-disk
+  format, so existing caches and call sites are unaffected (a caller that enables `encodeDefaults`
+  emits `"schemaVersion":0`, as for any other defaulted field).
 
 ### Added — stats (cache counters)
 

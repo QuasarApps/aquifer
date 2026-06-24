@@ -155,7 +155,9 @@ import kotlin.io.path.readBytes
  *   LRU eviction. `null` (the default) means unbounded. Must be positive.
  * @param schemaVersion version stamped into every written entry. An entry read back at a lower
  *   version is passed to [migrate]; at a higher version it is dropped. `0` (the default) writes
- *   no version field, preserving the pre-migration on-disk format. Must be non-negative.
+ *   no version field under the default [json] (`encodeDefaults` off), preserving the pre-migration
+ *   on-disk format; a caller-supplied `Json { encodeDefaults = true }` emits `"schemaVersion":0`,
+ *   as it already does for the defaulted `validator` field. Must be non-negative.
  * @param migrate upgrades an older entry's value JSON to the current [schemaVersion] shape,
  *   given the stored `fromVersion` and the raw value tree; returns the current-shape tree, or
  *   `null` to drop the entry (it refetches). Called only when `fromVersion < schemaVersion`.
@@ -451,13 +453,27 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
      * so the caller heals the slot; a migrated tree that no longer binds to [V] throws and is
      * healed by [read]'s catch, like any other corrupt file.
      *
-     * The common case — an entry already at [schemaVersion], including the default version 0 —
-     * skips the raw [JsonElement] tree entirely: a cheap version probe, then a direct bind to
-     * [V]. Only a true version mismatch pays for the tree plus [migrate] round-trip. (The probe
-     * is needed because binding [V] first can't tell a current entry from an older one whose JSON
-     * happens to decode into defaulted fields — that would silently skip migration.)
+     * A store **configured** at version 0 (the default) can't hold anything stamped below its
+     * current version, so the migration branch is unreachable and the probe buys nothing: it
+     * decodes once straight to [V]. A v0 entry is used as-is; an entry stamped at a higher version
+     * is an app downgrade this build can't read and is dropped. A **migrating** store
+     * (`schemaVersion > 0`) instead probes the version before binding [V] — binding first can't
+     * tell a current entry from an older one whose JSON happens to decode into defaulted fields,
+     * which would silently skip migration — then binds straight to [V] on a match, paying for the
+     * raw [JsonElement] tree plus [migrate] only on a true mismatch.
      */
     private fun decodeStored(text: String): PersistedEntry<V>? {
+        if (schemaVersion == 0) {
+            // Configured at version 0: nothing is stored below it, so there is no migration to
+            // skip — decode once. Gate on the *decoded* version only to drop a future entry (an
+            // app downgrade); a v0 entry has no field (or "schemaVersion":0) and is used as-is.
+            val stored = json.decodeFromString(storedSerializer, text)
+            return if (stored.schemaVersion == 0) {
+                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator)
+            } else {
+                null // a version newer than this build can read: drop (app downgrade)
+            }
+        }
         val storedVersion = probeSchemaVersion(text)
         return when {
             storedVersion == schemaVersion -> {
