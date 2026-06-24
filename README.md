@@ -271,8 +271,8 @@ beyond the JDK, so production crypto plugs in with a thin adapter:
 
 ```kotlin
 class TinkValueCipher(private val aead: Aead) : ValueCipher {     // Tink + Android Keystore
-    override fun encrypt(plaintext: ByteArray) = aead.encrypt(plaintext, null)
-    override fun decrypt(ciphertext: ByteArray) = aead.decrypt(ciphertext, null)
+    override fun encrypt(plaintext: ByteArray, aad: ByteArray) = aead.encrypt(plaintext, aad)
+    override fun decrypt(ciphertext: ByteArray, aad: ByteArray) = aead.decrypt(ciphertext, aad)
 }
 
 jsonFileSourceOfTruth<UserId, User>(directory = dir, cipher = TinkValueCipher(aead))
@@ -280,7 +280,9 @@ jsonFileSourceOfTruth<UserId, User>(directory = dir, cipher = TinkValueCipher(ae
 
 The on-disk bytes — and the `maxBytes` budget — are the ciphertext, and a `decrypt` that
 throws `GeneralSecurityException` (wrong key, tampered file) heals the slot like any other
-corrupt entry. Encryption composes with bounding, conditional fetching, and schema migration.
+corrupt entry. The entry's key is passed as authenticated associated data, so a blob copied to
+a different key's file on disk is rejected, not served as that key's value. Encryption composes
+with bounding, conditional fetching, and schema migration.
 
 ### Retries with backoff and jitter
 

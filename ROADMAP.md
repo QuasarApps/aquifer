@@ -29,6 +29,13 @@ Everything else compounds once there's a public artifact.
   newer-API slip or 11-incompatible bytecode could ship undetected. A cheap matrix turns two
   stated-but-unverified compatibility claims into tested guarantees before the first artifact
   reaches users on older toolchains and before the 1.0 bytecode contract locks. *(S)*
+- [ ] **Fence fetches at registration (correctness fix, in review — #42)** — `refreshWith`
+  captured the fetch's epoch in the lazily-started body, which runs *after* `inFlight.putIfAbsent`;
+  a `put`/`invalidate` in that gap bumped the epoch but the fetch then read the *post-bump* epoch,
+  so its commit passed the epoch check and overwrote the just-written local value — a silent loss
+  of a user's write in the headline "never resurrect deleted/edited data" guarantee. Fixed by
+  capturing the epoch before `scope.async` (it only ever fails safe), with a deterministic
+  register-then-fence interleaving test `MutationFencingTest` didn't cover. *(S)*
 
 ## 0.2 — Compose & everyday ergonomics
 
@@ -173,21 +180,12 @@ N-round-trip behavior or force a contract break mid-milestone.
 
 The engine's guarantees deserve machine-checked evidence.
 
-- [ ] **Harden the fence-during-registration window** — `refreshWith` captures the fetch's
-  epoch as the first line of a `CoroutineStart.LAZY` body, which runs only at `pending.start()`
-  — *after* `inFlight.putIfAbsent`. A `put`/`invalidate` landing in that gap bumps the epoch and
-  evicts the in-flight slot, but the fetch then captures the *post-bump* epoch, so its commit
-  check passes and a freshly-fetched value overwrites the just-written local value: the fence
-  half-works (new callers won't join the doomed fetch) but the commit isn't rejected. Capture
-  the epoch *before* `scope.async` (which only ever fails safe — an older captured epoch is
-  always dropped); add a deterministic interleaving test for the register-then-fence ordering,
-  which `MutationFencingTest` does not currently exercise. A latent hole in the headline
-  "never resurrect deleted/edited data" guarantee. *(M)*
 - [ ] **Lincheck concurrency tests** — model-check the fencing/single-flight invariants
   (linearizability of put/invalidate/fetch-commit) instead of relying on hand-written
-  interleavings; the strongest possible backing for the epoch design. Name the
-  register-then-fence window above in the target set — it is the one ordering where the epoch
-  capture is not serialized with slot registration. *(L)*
+  interleavings; the strongest possible backing for the epoch design. The register-then-fence
+  window fixed in #42 (a latent epoch-capture race the hand-written `MutationFencingTest` missed
+  for months) is exactly the kind of bug this would have caught mechanically — its successor
+  windows belong in the target set. *(L)*
 - [ ] **#13 — bounded `keyEpochs` *and* the negative-cache map** — implement the live-fetch
   refcount eviction sketched in the issue, with the proof written down (the naive evictions are
   provably unsound). Fold in the `negative` map: it has the identical unbounded-growth
@@ -310,8 +308,8 @@ the existing fencing and single-flight guarantees.
   with optimistic update + rollback), and the current `put()` optimistic-write README example
   already invites the expectation. Consider pulling a **minimal optimistic-`put`-with-rollback
   slice** forward as its own smaller item to de-risk the top differentiator before the full
-  module — note it depends on the fence-during-registration hardening (0.5), since a racing
-  in-flight fetch must not clobber an optimistic local write. *(XL)*
+  module — note it leans on the registration-fencing fix (#42), since a racing in-flight fetch
+  must not clobber an optimistic local write. *(XL)*
 - [ ] **Paging bridge** (`aquifer-paging`) — keyed page caching behind AndroidX Paging 3.
   *(L)*
 

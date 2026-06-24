@@ -13,7 +13,7 @@ public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTrut
 }
 
 public abstract interface class io/github/quasarapps/aquifer/persistence/ValueCipher {
-	public abstract fun decrypt ([B)[B
-	public abstract fun encrypt ([B)[B
+	public abstract fun decrypt ([B[B)[B
+	public abstract fun encrypt ([B[B)[B
 }
 

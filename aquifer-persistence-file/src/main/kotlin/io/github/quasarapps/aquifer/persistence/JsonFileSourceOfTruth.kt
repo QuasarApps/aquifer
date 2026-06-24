@@ -131,8 +131,11 @@ import kotlin.io.path.readBytes
  * thin [ValueCipher] adapter. The on-disk bytes — and the [maxBytes] budget — are the ciphertext,
  * so a nonce/tag is accounted for at its real size, and a [ValueCipher.decrypt] that rejects the
  * bytes (wrong key, tampered or truncated file) heals the slot like any other corrupt entry.
- * Encryption composes with bounding, conditional fetching (validators are stored in the
- * encrypted envelope), and [schemaVersion]/[migrate] (migration sees the decrypted tree).
+ * Each entry's key is passed to the cipher as authenticated associated data, so a ciphertext
+ * only decrypts under its own key — a blob copied or swapped to a different key's file on disk
+ * is rejected (and healed), not served as that key's value. Encryption composes with bounding,
+ * conditional fetching (validators are stored in the encrypted envelope), and
+ * [schemaVersion]/[migrate] (migration sees the decrypted tree).
  *
  * ### Concurrency
  *
@@ -158,7 +161,8 @@ import kotlin.io.path.readBytes
  *   `null` to drop the entry (it refetches). Called only when `fromVersion < schemaVersion`.
  * @param cipher optional reversible transform applied to each entry's serialized bytes before
  *   they are written and after they are read — typically encryption. `null` (the default)
- *   stores plaintext JSON. A [ValueCipher.decrypt] that throws is treated as an unreadable
+ *   stores plaintext JSON. The entry's key is passed as authenticated associated data, binding
+ *   each ciphertext to its key. A [ValueCipher.decrypt] that throws is treated as an unreadable
  *   entry (healed and refetched), like any other corrupt file. See [ValueCipher].
  */
 // Cohesive store (each helper is one locked or lock-free step of an I/O path) configured by
@@ -185,9 +189,13 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
 
     private val storedSerializer = Stored.serializer(valueSerializer)
 
-    // Reads decode the value as a raw JSON tree first, so an entry written under an older
-    // schemaVersion can be migrated before it is bound to the current [valueSerializer].
+    // Reads decode the value as a raw JSON tree only when a migration is actually needed (the
+    // common path binds straight to [V]); this raw serializer is that migration path's first step.
     private val rawSerializer = Stored.serializer(JsonElement.serializer())
+
+    // A lenient view used only to read an envelope's schemaVersion without binding its value;
+    // ignoreUnknownKeys lets it skip the value/validator/writtenAtMillis fields.
+    private val versionProbeJson = Json(json) { ignoreUnknownKeys = true }
     private val bounded = maxEntries != null || maxBytes != null
 
     /** Guards [index], [totalBytes], one-time housekeeping, and (when [bounded]) renames. */
@@ -212,11 +220,8 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // slow read can't lose its place to an eviction pass racing it.
             recordAccess(file)
             val raw = file.readBytes()
-            val plaintext = cipher?.decrypt(raw) ?: raw
-            val stored = json.decodeFromString(rawSerializer, plaintext.decodeToString())
-            val element = currentShapeOf(stored.schemaVersion, stored.value) ?: return@withContext heal(file)
-            val value = json.decodeFromJsonElement(valueSerializer, element)
-            PersistedEntry(value, stored.writtenAtMillis, stored.validator)
+            val text = (cipher?.decrypt(raw, aadFor(key)) ?: raw).decodeToString()
+            decodeStored(text) ?: return@withContext heal(file)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: SerializationException) {
@@ -244,8 +249,9 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         )
         val plaintext = encoded.encodeToByteArray()
         // The on-disk bytes (and the byte budget) are the ciphertext: a cipher that pads or
-        // adds a nonce/tag is accounted for at its real size.
-        val bytes = cipher?.encrypt(plaintext) ?: plaintext
+        // adds a nonce/tag is accounted for at its real size. The entry's key is passed as
+        // authenticated associated data, binding the ciphertext to its file (see [ValueCipher]).
+        val bytes = cipher?.encrypt(plaintext, aadFor(key)) ?: plaintext
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
         try {
@@ -439,15 +445,45 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     }
 
     /**
-     * Maps a stored value tree to the current [schemaVersion] shape, or `null` if the entry
-     * can't be brought to it and should be dropped (healed away, then refetched): a [migrate]
-     * that declines an older version, or a version newer than this build can read.
+     * Decodes a stored entry from its (already decrypted) JSON [text], upgrading it to the
+     * current [schemaVersion] when needed. Returns `null` when the entry must be dropped — a
+     * version newer than this build can read (an app downgrade), or a [migrate] that declined —
+     * so the caller heals the slot; a migrated tree that no longer binds to [V] throws and is
+     * healed by [read]'s catch, like any other corrupt file.
+     *
+     * The common case — an entry already at [schemaVersion], including the default version 0 —
+     * skips the raw [JsonElement] tree entirely: a cheap version probe, then a direct bind to
+     * [V]. Only a true version mismatch pays for the tree plus [migrate] round-trip. (The probe
+     * is needed because binding [V] first can't tell a current entry from an older one whose JSON
+     * happens to decode into defaulted fields — that would silently skip migration.)
      */
-    private fun currentShapeOf(storedVersion: Int, value: JsonElement): JsonElement? = when {
-        storedVersion == schemaVersion -> value
-        storedVersion < schemaVersion -> migrate(storedVersion, value)
-        else -> null
+    private fun decodeStored(text: String): PersistedEntry<V>? {
+        val storedVersion = probeSchemaVersion(text)
+        return when {
+            storedVersion == schemaVersion -> {
+                val stored = json.decodeFromString(storedSerializer, text)
+                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator)
+            }
+            storedVersion > schemaVersion -> null // an app downgrade: this build can't know the shape
+            else -> {
+                val stored = json.decodeFromString(rawSerializer, text)
+                val element = migrate(storedVersion, stored.value) ?: return null
+                val value = json.decodeFromJsonElement(valueSerializer, element)
+                PersistedEntry(value, stored.writtenAtMillis, stored.validator)
+            }
+        }
     }
+
+    /**
+     * Reads just the `schemaVersion` field of a stored envelope without binding its value — the
+     * gate that lets the current-version read path skip the raw tree. A missing field (a
+     * version-0 store) decodes as 0.
+     */
+    private fun probeSchemaVersion(text: String): Int =
+        versionProbeJson.decodeFromString(VersionProbe.serializer(), text).schemaVersion
+
+    /** Authenticated context bound to each ciphertext: the entry's encoded key (see [ValueCipher]). */
+    private fun aadFor(key: K): ByteArray = keyEncoder(key).encodeToByteArray()
 
     private fun fileFor(key: K): Path {
         val digest = MessageDigest.getInstance("SHA-256").digest(keyEncoder(key).encodeToByteArray())
@@ -466,6 +502,10 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         // a version-0 store writes no version field, so opting out is byte-for-byte the old format.
         val schemaVersion: Int = 0,
     )
+
+    /** Probe envelope: just enough to read [Stored.schemaVersion] without binding the value. */
+    @Serializable
+    private class VersionProbe(val schemaVersion: Int = 0)
 
     public companion object {
         /** Default JSON configuration: unknown keys are ignored so added model fields don't invalidate caches. */
