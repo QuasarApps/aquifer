@@ -970,10 +970,16 @@ internal class RealAquifer<K : Any, V : Any>(
         transport: suspend (prior: MemoryCache.Entry<V>?, setAttempts: (Int) -> Unit) -> FetchResult<V>,
     ): Deferred<V> {
         inFlight[key]?.let { return it }
+        // Captured here — before the fetch is registered in inFlight below — not inside the
+        // lazily-started body. The body doesn't run until pending.start(), which happens after
+        // putIfAbsent; a fence (epoch bump + inFlight eviction) landing in that gap would
+        // otherwise be read by the body as the *current* epoch, so the fetch's commit would pass
+        // its epoch check and clobber the very write that fenced it. Capturing at registration
+        // only ever fails safe: any mutation after this point leaves this epoch stale, so the
+        // commit is correctly dropped.
+        val epoch = epochOf(key)
         val pending = scope.async(start = CoroutineStart.LAZY) {
             var attempts = 1
-            // Any mutation after this point outranks this fetch's result.
-            val epoch = epochOf(key)
             try {
                 events.emit(Event.Fetching(key))
                 notify { onFetchStarted(key) }
