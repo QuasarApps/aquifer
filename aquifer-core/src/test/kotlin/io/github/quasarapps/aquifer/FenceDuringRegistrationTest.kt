@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -55,22 +56,26 @@ class FenceDuringRegistrationTest {
         // where it sits queued and unrun — so the only fencing epoch that exists is the one
         // captured at registration.
         val getter = launch { store.get("k", Freshness.NetworkOnly) }
-        runCurrent() // run get() up to awaiting the fetch; the body is queued on fetchDispatcher
+        try {
+            runCurrent() // run get() up to awaiting the fetch; the body is queued on fetchDispatcher
 
-        // The local write lands in the registration→body gap. With the epoch captured at
-        // registration it fences the fetch; with the epoch captured in the (still-queued) body
-        // the fence would be missed and the fetch below would clobber this write.
-        store.put("k", "local")
-        runCurrent()
+            // The local write lands in the registration→body gap. With the epoch captured at
+            // registration it fences the fetch; with the epoch captured in the (still-queued)
+            // body the fence would be missed and the fetch below would clobber this write.
+            store.put("k", "local")
+            runCurrent()
 
-        // Now let the queued fetch body run to completion: it resolves "from-network" for its
-        // awaiting caller, but its commit is fenced off, so the cache keeps the local write.
-        fetchDispatcher.drain()
-        runCurrent()
+            // Now let the queued fetch body run to completion: it resolves "from-network" for its
+            // awaiting caller, but its commit is fenced off, so the cache keeps the local write.
+            fetchDispatcher.drain()
+            runCurrent()
 
-        assertEquals("local", store.get("k", Freshness.CacheOnly))
-
-        getter.join()
-        fetchScope.cancel()
+            assertEquals("local", store.get("k", Freshness.CacheOnly))
+        } finally {
+            // Always tear down, even if an assertion above fails, so no work leaks into later
+            // tests: cancel/join the getter before cancelling the scope it fetched in.
+            getter.cancelAndJoin()
+            fetchScope.cancel()
+        }
     }
 }
