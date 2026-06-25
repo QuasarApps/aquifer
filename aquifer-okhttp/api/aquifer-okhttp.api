@@ -1,3 +1,7 @@
+public final class io/github/quasarapps/aquifer/okhttp/AwaitKt {
+	public static final fun await (Lokhttp3/Call;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class io/github/quasarapps/aquifer/okhttp/HttpException : java/io/IOException {
 	public fun <init> (ILjava/lang/String;)V
 	public final fun getCode ()I
@@ -6,5 +10,9 @@ public final class io/github/quasarapps/aquifer/okhttp/HttpException : java/io/I
 
 public final class io/github/quasarapps/aquifer/okhttp/OkHttpConditionalFetcherKt {
 	public static final fun okHttpConditionalFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;)Lkotlin/jvm/functions/Function3;
+}
+
+public final class io/github/quasarapps/aquifer/okhttp/OkHttpFetcherKt {
+	public static final fun okHttpFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;)Lkotlin/jvm/functions/Function2;
 }
 

@@ -1,15 +1,11 @@
 package io.github.quasarapps.aquifer.okhttp
 
 import io.github.quasarapps.aquifer.FetchResult
-import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
-import java.io.IOException
 import java.net.HttpURLConnection
-import kotlin.coroutines.resumeWithException
 
 /**
  * Builds a [conditional fetcher][io.github.quasarapps.aquifer.AquiferBuilder.conditionalFetcher]
@@ -37,7 +33,7 @@ import kotlin.coroutines.resumeWithException
  *   the response's `ETag` and `Last-Modified` headers (both kept when both are present;
  *   `null` when neither is — the next fetch is then unconditional).
  * - 304 becomes [FetchResult.NotModified].
- * - Any other status throws [HttpException] (an [IOException]) carrying the response
+ * - Any other status throws [HttpException] (an `IOException`) carrying the response
  *   [code][HttpException.code], so a retry/negative-cache policy can branch on the status
  *   (e.g. retry only 5xx). It still flows through Aquifer's normal failure path (retry
  *   policy, `DataState.Failure`, stale-if-error fallbacks) by default.
@@ -104,20 +100,4 @@ private fun validatorOf(response: Response): String? {
     val lastModified = response.header("Last-Modified").orEmpty()
     if (etag.isEmpty() && lastModified.isEmpty()) return null
     return "$etag$VALIDATOR_SEPARATOR$lastModified"
-}
-
-/** Suspends on [Call], cancelling it when the coroutine is cancelled. */
-private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
-    enqueue(
-        object : Callback {
-            override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { _, resource, _ -> resource.close() }
-            }
-
-            override fun onFailure(call: Call, e: IOException) {
-                continuation.resumeWithException(e)
-            }
-        },
-    )
-    continuation.invokeOnCancellation { cancel() }
 }

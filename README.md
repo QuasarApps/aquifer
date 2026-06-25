@@ -328,8 +328,10 @@ val articles = aquifer<ArticleId, Article> {
 Responses' `ETag`/`Last-Modified` headers are captured automatically, replayed as
 `If-None-Match`/`If-Modified-Since`, and a 304 re-ages the entry without the payload ever
 crossing the network. A non-success status throws `HttpException`, which carries the response
-`code` so a retry or negative-cache policy can branch on it (e.g. retry only 5xx). No OkHttp?
-Implement the two-line `when` yourself — the
+`code` so a retry or negative-cache policy can branch on it (e.g. retry only 5xx). For a
+backend without revalidation, `okHttpFetcher` feeds the plain `fetcher` the same way (no
+validator, same `HttpException`), and `Call.await()` is public if you'd rather hand-roll one.
+No OkHttp at all? Implement the two-line `when` yourself — the
 `conditionalFetcher { key, validator -> FetchResult }` contract is transport-agnostic.
 
 ### Negative caching
