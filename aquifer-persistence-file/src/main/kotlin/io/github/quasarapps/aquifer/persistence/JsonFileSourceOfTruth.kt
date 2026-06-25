@@ -309,13 +309,22 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         val bytes = cipher?.encrypt(plaintext, aadFor(key)) ?: plaintext
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
-        FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
-            val buffer = ByteBuffer.wrap(bytes)
-            // A single write() may consume only part of the buffer; drain it fully.
-            while (buffer.hasRemaining()) {
-                channel.write(buffer)
+        var staged = false
+        try {
+            FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
+                val buffer = ByteBuffer.wrap(bytes)
+                // A single write() may consume only part of the buffer; drain it fully.
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer)
+                }
+                channel.force(true)
             }
-            channel.force(true)
+            staged = true
+        } finally {
+            // A write/force failure means this temp never reaches a Staged record the caller can
+            // clean up, so delete the partial temp here rather than orphan it on disk (and, on a
+            // bounded store, off the byte budget) until the next instance's housekeeping sweep.
+            if (!staged) temp.deleteIfExists()
         }
         return Staged(temp, target, bytes.size.toLong())
     }
