@@ -243,7 +243,9 @@ writes, SHA-256 file naming for arbitrary keys, and self-healing reads that trea
 files as absent. The store is unbounded by default; `maxEntries`/`maxBytes` cap it with
 least-recently-used eviction, and temp files orphaned by a crash are cleaned up on first
 use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight, or
-DataStore — it's four suspend functions.
+DataStore — four suspend functions (`read`/`write`/`delete`/`deleteAll`), plus optional
+`writeAll`/`deleteMany` to let `putAll`/`invalidateWhere` batch in one transaction (they
+default to the per-key loop, so overriding them is purely an optimization).
 
 Adding a field to your model is safe by default (unknown keys are ignored). For a *breaking*
 change — a removed or retyped field — stamp writes with a `schemaVersion` and supply a

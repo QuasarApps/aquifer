@@ -245,6 +245,59 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     override suspend fun write(key: K, entry: PersistedEntry<V>): Unit = withContext(ioContext) {
         ensureHousekeeping()
         directory.createDirectories()
+        val staged = stage(key, entry)
+        try {
+            if (bounded) {
+                // Rename and accounting commit together, so the budget math can never drift
+                // from which file content actually won a same-key race.
+                housekeeping.withLock {
+                    moveIntoPlace(staged.temp, staged.target)
+                    record(staged.target, staged.size)
+                    evictWhileOverBudget()
+                }
+            } else {
+                moveIntoPlace(staged.temp, staged.target)
+            }
+        } finally {
+            staged.temp.deleteIfExists()
+        }
+    }
+
+    override suspend fun writeAll(entries: Map<K, PersistedEntry<V>>): Unit = withContext(ioContext) {
+        if (entries.isEmpty()) return@withContext
+        ensureHousekeeping()
+        directory.createDirectories()
+        // Stage every entry to a fsynced temp file first — the expensive, lock-free I/O — then
+        // commit all the renames together. A staging failure leaves nothing in place; when
+        // [bounded], one lock acquisition and a single eviction pass cover the whole batch
+        // instead of N. A commit-phase failure can still leave an earlier prefix in place,
+        // matching the non-transactional contract of the default loop.
+        val staged = ArrayList<Staged>(entries.size)
+        try {
+            for ((key, entry) in entries) staged += stage(key, entry)
+            if (bounded) {
+                housekeeping.withLock {
+                    for (item in staged) {
+                        moveIntoPlace(item.temp, item.target)
+                        record(item.target, item.size)
+                    }
+                    evictWhileOverBudget()
+                }
+            } else {
+                for (item in staged) moveIntoPlace(item.temp, item.target)
+            }
+        } finally {
+            for (item in staged) item.temp.deleteIfExists()
+        }
+    }
+
+    /**
+     * Encodes, encrypts, and fsyncs [entry] to a fresh temp file, returning the staged file and
+     * its target path/size for the caller to commit. The temp's contents are forced to disk
+     * before any rename: journaling filesystems may otherwise commit the rename before the data,
+     * and a power loss would replace the previous entry with a torn or empty file.
+     */
+    private fun stage(key: K, entry: PersistedEntry<V>): Staged {
         val encoded = json.encodeToString(
             storedSerializer,
             Stored(entry.writtenAtMillis, entry.value, entry.validator, entry.serverFreshForMillis, schemaVersion),
@@ -256,33 +309,19 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         val bytes = cipher?.encrypt(plaintext, aadFor(key)) ?: plaintext
         val target = fileFor(key)
         val temp = directory.resolve("${target.fileName}.${UUID.randomUUID()}$TEMP_SUFFIX")
-        try {
-            // Force the temp file's contents to disk before the rename: journaling
-            // filesystems may otherwise commit the rename before the data, and a power loss
-            // would replace the previous entry with a torn or empty file.
-            FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
-                val buffer = ByteBuffer.wrap(bytes)
-                // A single write() may consume only part of the buffer; drain it fully.
-                while (buffer.hasRemaining()) {
-                    channel.write(buffer)
-                }
-                channel.force(true)
+        FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW).use { channel ->
+            val buffer = ByteBuffer.wrap(bytes)
+            // A single write() may consume only part of the buffer; drain it fully.
+            while (buffer.hasRemaining()) {
+                channel.write(buffer)
             }
-            if (bounded) {
-                // Rename and accounting commit together, so the budget math can never drift
-                // from which file content actually won a same-key race.
-                housekeeping.withLock {
-                    moveIntoPlace(temp, target)
-                    record(target, bytes.size.toLong())
-                    evictWhileOverBudget()
-                }
-            } else {
-                moveIntoPlace(temp, target)
-            }
-        } finally {
-            temp.deleteIfExists()
+            channel.force(true)
         }
+        return Staged(temp, target, bytes.size.toLong())
     }
+
+    /** A written-and-fsynced temp file awaiting its atomic move into [target]. */
+    private class Staged(val temp: Path, val target: Path, val size: Long)
 
     override suspend fun delete(key: K): Unit = withContext(ioContext) {
         ensureHousekeeping()
@@ -294,6 +333,25 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             }
         } else {
             file.deleteIfExists()
+        }
+    }
+
+    override suspend fun deleteMany(keys: Collection<K>): Unit = withContext(ioContext) {
+        if (keys.isEmpty()) return@withContext
+        ensureHousekeeping()
+        // One lock acquisition covers the whole set when [bounded]; the per-key default would
+        // take and release the lock N times. Unbounded deletes touch no shared accounting, so
+        // they need no lock at all.
+        if (bounded) {
+            housekeeping.withLock {
+                for (key in keys) {
+                    val file = fileFor(key)
+                    file.deleteIfExists()
+                    dropAccounting(file)
+                }
+            }
+        } else {
+            for (key in keys) fileFor(key).deleteIfExists()
         }
     }
 

@@ -7,6 +7,17 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — bulk `SourceOfTruth` batching
+
+- `SourceOfTruth` gains optional `writeAll(entries)` and `deleteMany(keys)` methods that default
+  to looping the per-key `write`/`delete`, so existing custom stores keep working unchanged. The
+  engine now routes `putAll` through `writeAll` and `invalidateWhere` through `deleteMany`, so a
+  store that overrides them does the batch in a single round-trip instead of N.
+  `JsonFileSourceOfTruth` overrides both: `writeAll` stages every entry to a fsynced temp file
+  first and then commits all the renames under one lock with a single LRU eviction pass, and
+  `deleteMany` deletes the whole set under one lock acquisition. First of the two bulk SPI
+  capabilities the queryable persistence adapters need (a `readAll` read-side counterpart follows).
+
 ### Added — encryption at rest (JsonFileSourceOfTruth)
 
 - `JsonFileSourceOfTruth` gains a `cipher: ValueCipher?` parameter (also on the

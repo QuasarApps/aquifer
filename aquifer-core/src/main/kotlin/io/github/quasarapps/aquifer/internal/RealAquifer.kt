@@ -689,13 +689,12 @@ internal class RealAquifer<K : Any, V : Any>(
         val now = clock.nowMillis()
         val committed = LinkedHashMap<K, MemoryCache.Entry<V>>(entries.size)
         commitGuard.withLock {
-            // Persist everything first, like put: if a write throws it propagates before any
+            // Persist everything first, like put: if the write throws it propagates before any
             // in-memory commit or broadcast, so the *visible* state (memory + Updated events) is
-            // all-or-nothing. Persistence itself is per-key, not transactional, so a mid-batch
-            // failure can still leave an earlier prefix on disk (it resurfaces on the next load()).
-            persistence?.let { store ->
-                for ((key, value) in entries) store.write(key, PersistedEntry(value, now))
-            }
+            // all-or-nothing. writeAll lets a store batch the whole map in one transaction; the
+            // default per-key loop is not transactional, so a mid-batch failure can still leave an
+            // earlier prefix on disk (it resurfaces on the next load()).
+            persistence?.writeAll(entries.mapValues { (_, value) -> PersistedEntry(value, now) })
             // Then the in-memory commits + fences (none of which throw): fence off any in-flight
             // fetch, clear the negative-cache record, and stamp a fresh entry per key.
             for ((key, value) in entries) {
@@ -746,12 +745,14 @@ internal class RealAquifer<K : Any, V : Any>(
         // One fenced commit for the batch, mirroring invalidate per key. Delete persistence for
         // every matched key first, like putAll: a delete failure propagates before any in-memory
         // drop or sequence allocation, so the visible state (memory + Invalidated events) is
-        // all-or-nothing. Then the non-throwing in-memory drops + fences; sequences increase in
-        // iteration order, and the per-key broadcasts happen outside the lock (like invalidate)
-        // so a slow collector can't stall the commit.
+        // all-or-nothing. deleteMany lets a store batch the whole set in one transaction; the
+        // default per-key loop is not transactional, so a mid-batch failure can leave an earlier
+        // prefix deleted on disk. Then the non-throwing in-memory drops + fences; sequences
+        // increase in iteration order, and the per-key broadcasts happen outside the lock (like
+        // invalidate) so a slow collector can't stall the commit.
         val drops = ArrayList<Pair<K, Long>>(matched.size)
         commitGuard.withLock {
-            persistence?.let { store -> for (key in matched) store.delete(key) }
+            persistence?.deleteMany(matched)
             for (key in matched) {
                 fence(key)
                 negative.remove(key)
