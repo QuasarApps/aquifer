@@ -1,5 +1,7 @@
 package io.github.quasarapps.aquifer
 
+import kotlin.time.Duration
+
 /**
  * The outcome of a conditional fetch (see [AquiferBuilder.conditionalFetcher]).
  *
@@ -23,10 +25,18 @@ public sealed interface FetchResult<out V : Any> {
      * The fetch produced a (new) value. [validator] is stored alongside it — in memory and
      * in persistence — and handed to the next conditional fetch of the key; `null` means
      * the next fetch is unconditional.
+     *
+     * [freshFor] is the server-derived remaining lifetime of the value (e.g. derived from an
+     * HTTP `Cache-Control: max-age`). When set, it is the authoritative freshness horizon —
+     * never jittered, and overriding the builder `timeToLive` — and is honored only by a
+     * [SourceOfTruth] that persists it (so it survives process restarts). `null` (the default)
+     * means the origin expressed no opinion, so the store falls back to its own time-to-live;
+     * [Duration.ZERO] declares the value immediately stale on the next read.
      */
     public data class Fresh<V : Any>(
         val value: V,
         val validator: String? = null,
+        val freshFor: Duration? = null,
     ) : FetchResult<V>
 
     /**

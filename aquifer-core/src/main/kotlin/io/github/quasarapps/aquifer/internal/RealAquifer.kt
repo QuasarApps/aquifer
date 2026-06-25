@@ -275,7 +275,16 @@ internal class RealAquifer<K : Any, V : Any>(
                     newestSequence = event.sequence
                     last = event.value
                     downstream.emit(
-                        DataState.Content(event.value, event.origin, isExpired(key, event.writtenAtMillis, maxAge)),
+                        DataState.Content(
+                            event.value,
+                            event.origin,
+                            isExpired(
+                                key,
+                                event.writtenAtMillis,
+                                maxAge,
+                                entryFreshFor = event.serverFreshForMillis?.milliseconds,
+                            ),
+                        ),
                     )
                 }
 
@@ -355,7 +364,8 @@ internal class RealAquifer<K : Any, V : Any>(
         requireValidMaxAge(maxAge)
         // NetworkOnly bypasses cached reads entirely: no memory lookup, no persistence I/O.
         val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
-        val usable = entry != null && !isExpired(key, entry.writtenAtMillis, maxAge)
+        val usable = entry != null &&
+            !isExpired(key, entry.writtenAtMillis, maxAge, entry.serverFreshForMillis?.milliseconds)
         recordRead(freshness, present = entry != null, usable = usable)
         return when (freshness) {
             Freshness.CacheOnly -> entry?.value ?: throw CacheMissException(key)
@@ -402,7 +412,9 @@ internal class RealAquifer<K : Any, V : Any>(
                 // read error can't turn an always-fetch prefetch into a silent no-op.
                 val needsValue = when (freshness) {
                     Freshness.CacheFirst, Freshness.StaleWhileRevalidate ->
-                        load(key)?.entry?.let { isExpired(key, it.writtenAtMillis) } ?: true
+                        load(key)?.entry?.let {
+                            isExpired(key, it.writtenAtMillis, entryFreshFor = it.serverFreshForMillis?.milliseconds)
+                        } ?: true
                     else -> true
                 }
                 // Same fetch decision as prime/get: suppression is consulted only when a
@@ -457,7 +469,8 @@ internal class RealAquifer<K : Any, V : Any>(
             // the cached value for stale-if-error fallback, not just the fetch decision.
             val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
             if (entry != null) cached[key] = entry.value
-            val usable = entry != null && !isExpired(key, entry.writtenAtMillis)
+            val usable = entry != null &&
+                !isExpired(key, entry.writtenAtMillis, entryFreshFor = entry.serverFreshForMillis?.milliseconds)
             // getAll awaits a stale SWR refresh (get/stream serve stale immediately and revalidate
             // in the background), so for stats a stale-but-present SWR key here is served via an
             // awaited fetch — a miss. Classify SWR like CacheFirst on this path only.
@@ -483,7 +496,8 @@ internal class RealAquifer<K : Any, V : Any>(
      * they differ only in cache-read policy, which each owns.
      */
     private fun shouldFetch(key: K, freshness: Freshness, entry: MemoryCache.Entry<V>?, report: Boolean): Boolean {
-        val needsValue = entry == null || isExpired(key, entry.writtenAtMillis)
+        val needsValue = entry == null ||
+            isExpired(key, entry.writtenAtMillis, entryFreshFor = entry.serverFreshForMillis?.milliseconds)
         val wantsFetch = wantsFetch(freshness, needsValue)
         return wantsFetch && fetchBlock(key, wantsFetch, freshness, report) == null
     }
@@ -809,7 +823,9 @@ internal class RealAquifer<K : Any, V : Any>(
         checkOpen()
         for (key in activeKeys.keys) {
             val entry = load(key)?.entry
-            if ((entry == null || isExpired(key, entry.writtenAtMillis)) && suppression(key) == null) refresh(key)
+            val stale = entry == null ||
+                isExpired(key, entry.writtenAtMillis, entryFreshFor = entry.serverFreshForMillis?.milliseconds)
+            if (stale && suppression(key) == null) refresh(key)
         }
     }
 
@@ -896,6 +912,7 @@ internal class RealAquifer<K : Any, V : Any>(
                     snapshot.origin,
                     snapshot.entry.writtenAtMillis,
                     snapshot.entry.sequence,
+                    snapshot.entry.serverFreshForMillis,
                 ),
             )
         }
@@ -903,7 +920,8 @@ internal class RealAquifer<K : Any, V : Any>(
         // too early for us to see it. Note it now (before refresh, so a fetch we start
         // ourselves is not mistaken for a pre-existing one) and replay it below.
         val joinedInFlightFetch = inFlight.containsKey(key)
-        val needsValue = entry == null || isExpired(key, entry.writtenAtMillis, maxAge)
+        val needsValue = entry == null ||
+            isExpired(key, entry.writtenAtMillis, maxAge, entry.serverFreshForMillis?.milliseconds)
         recordRead(freshness, present = entry != null, usable = entry != null && !needsValue)
         val wantsFetch = wantsFetch(freshness, needsValue)
         val block = fetchBlock(key, wantsFetch, freshness)
@@ -991,9 +1009,9 @@ internal class RealAquifer<K : Any, V : Any>(
                 val result = transport(prior) { attempts = it }
                 val now = clock.nowMillis()
                 notify { onFetchSucceeded(key, (now - startedAt).milliseconds) }
-                val (value, validator) = resolve(key, result, prior)
-                commitFetched(key, epoch, value, validator, now)
-                value
+                val resolved = resolve(key, result, prior)
+                commitFetched(key, epoch, resolved, now)
+                resolved.value
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
@@ -1018,15 +1036,21 @@ internal class RealAquifer<K : Any, V : Any>(
      * the negative-cache record, writes memory and persistence, and broadcasts `Updated`. A
      * mutation that raced the fetch leaves the epoch moved, and the commit is dropped.
      */
-    private suspend fun commitFetched(key: K, epoch: Pair<Long, Long>, value: V, validator: String?, now: Long) {
+    private suspend fun commitFetched(key: K, epoch: Pair<Long, Long>, resolved: Resolved<V>, now: Long) {
         val committed: MemoryCache.Entry<V>? = commitGuard.withLock {
             if (epochOf(key) == epoch) {
                 // Cleared with the commit it celebrates: a read between commit and a later
                 // clear could otherwise still see the stale suppression window.
                 negative.remove(key)
-                val entry = MemoryCache.Entry(value, now, sequencer.incrementAndGet(), validator)
+                val entry = MemoryCache.Entry(
+                    resolved.value,
+                    now,
+                    sequencer.incrementAndGet(),
+                    resolved.validator,
+                    resolved.serverFreshForMillis,
+                )
                 memory.put(key, entry)
-                persistFetched(key, value, now, validator)
+                persistFetched(key, resolved.value, now, resolved.validator, resolved.serverFreshForMillis)
                 entry
             } else {
                 null
@@ -1035,7 +1059,16 @@ internal class RealAquifer<K : Any, V : Any>(
         // Re-check before broadcasting: a mutation may have raced the gap above, and observers
         // should not see a fenced-off value even transiently.
         if (committed != null && epochOf(key) == epoch) {
-            events.emit(Event.Updated(key, value, Origin.FETCHER, now, committed.sequence))
+            events.emit(
+                Event.Updated(
+                    key,
+                    resolved.value,
+                    Origin.FETCHER,
+                    now,
+                    committed.sequence,
+                    committed.serverFreshForMillis,
+                ),
+            )
         }
     }
 
@@ -1084,6 +1117,7 @@ internal class RealAquifer<K : Any, V : Any>(
                             persisted.writtenAtMillis,
                             sequencer.incrementAndGet(),
                             persisted.validator,
+                            persisted.serverFreshForMillis,
                         )
                     memory.put(key, entry)
                     Snapshot(entry, Origin.PERSISTENCE)
@@ -1099,10 +1133,16 @@ internal class RealAquifer<K : Any, V : Any>(
      * successful fetch into an error (the value is already cached and broadcast), so anything
      * but cancellation is swallowed. Direct mutations ([put], [invalidate]) propagate instead.
      */
-    private suspend fun persistFetched(key: K, value: V, writtenAtMillis: Long, validator: String?) {
+    private suspend fun persistFetched(
+        key: K,
+        value: V,
+        writtenAtMillis: Long,
+        validator: String?,
+        serverFreshForMillis: Long?,
+    ) {
         val store = persistence ?: return
         try {
-            store.write(key, PersistedEntry(value, writtenAtMillis, validator))
+            store.write(key, PersistedEntry(value, writtenAtMillis, validator, serverFreshForMillis))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
@@ -1116,14 +1156,24 @@ internal class RealAquifer<K : Any, V : Any>(
         val origin: Origin,
     )
 
+    /** What a resolved fetch commits: the value, its validator, and its server-declared lifetime. */
+    internal data class Resolved<V : Any>(
+        val value: V,
+        val validator: String?,
+        val serverFreshForMillis: Long?,
+    )
+
     /**
-     * Resolves what a fetch [result] commits: a [FetchResult.Fresh] carries its own value
-     * and validator; a [FetchResult.NotModified] re-commits the [prior] entry — "still
-     * current" only means something against a cached entry, whose age the commit resets.
+     * Resolves what a fetch [result] commits: a [FetchResult.Fresh] carries its own value,
+     * validator, and (server-derived) [FetchResult.Fresh.freshFor] as whole millis; a
+     * [FetchResult.NotModified] re-commits the [prior] entry — "still current" only means
+     * something against a cached entry, whose age the commit resets, so the prior entry's
+     * server lifetime carries forward and re-ages off the new write time.
      */
-    private fun resolve(key: K, result: FetchResult<V>, prior: MemoryCache.Entry<V>?): Pair<V, String?> =
+    private fun resolve(key: K, result: FetchResult<V>, prior: MemoryCache.Entry<V>?): Resolved<V> =
         when (result) {
-            is FetchResult.Fresh -> result.value to result.validator
+            is FetchResult.Fresh ->
+                Resolved(result.value, result.validator, result.freshFor?.inWholeMilliseconds)
             is FetchResult.NotModified -> {
                 val entry = prior
                 // A prior entry alone is not enough: one without a validator (a local put,
@@ -1133,7 +1183,7 @@ internal class RealAquifer<K : Any, V : Any>(
                     "Fetcher returned NotModified for '$key' but was given no validator " +
                         "(nothing cached, or the cached entry carries none)"
                 }
-                entry.value to entry.validator
+                Resolved(entry.value, entry.validator, entry.serverFreshForMillis)
             }
         }
 
@@ -1188,11 +1238,24 @@ internal class RealAquifer<K : Any, V : Any>(
     }
 
     /**
-     * Staleness against [maxAge] when given (per-call override, never jittered — it is the
-     * caller's explicit bar), else the store-wide TTL with the entry's deterministic jitter.
+     * Staleness as the highest-precedence freshness horizon that applies:
+     *
+     * 1. [maxAge] — the per-call override, the caller's explicit bar, never jittered.
+     * 2. [entryFreshFor] — the entry's server-declared remaining lifetime (an origin
+     *    `Cache-Control: max-age`), authoritative over the store TTL and likewise never
+     *    jittered; [Duration.ZERO] means immediately stale, `null` means no server opinion.
+     * 3. the store-wide TTL with the entry's deterministic jitter.
+     *
+     * With no [maxAge] and no [entryFreshFor] this reduces exactly to the pre-existing
+     * `maxAge ?: jitteredTimeToLive`, so behaviour is unchanged for entries that carry neither.
      */
-    private fun isExpired(key: K, writtenAtMillis: Long, maxAge: Duration? = null): Boolean {
-        val horizon = maxAge ?: jitteredTimeToLive(key, writtenAtMillis)
+    private fun isExpired(
+        key: K,
+        writtenAtMillis: Long,
+        maxAge: Duration? = null,
+        entryFreshFor: Duration? = null,
+    ): Boolean {
+        val horizon = maxAge ?: entryFreshFor ?: jitteredTimeToLive(key, writtenAtMillis)
         // Duration arithmetic, not inWholeMilliseconds: a sub-millisecond horizon must not
         // truncate to zero and declare everything instantly stale. INFINITE compares false
         // against any finite elapsed time, giving "always fresh" naturally.

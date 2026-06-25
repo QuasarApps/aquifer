@@ -247,7 +247,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         directory.createDirectories()
         val encoded = json.encodeToString(
             storedSerializer,
-            Stored(entry.writtenAtMillis, entry.value, entry.validator, schemaVersion),
+            Stored(entry.writtenAtMillis, entry.value, entry.validator, entry.serverFreshForMillis, schemaVersion),
         )
         val plaintext = encoded.encodeToByteArray()
         // The on-disk bytes (and the byte budget) are the ciphertext: a cipher that pads or
@@ -469,7 +469,7 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
             // app downgrade); a v0 entry has no field (or "schemaVersion":0) and is used as-is.
             val stored = json.decodeFromString(storedSerializer, text)
             return if (stored.schemaVersion == 0) {
-                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator)
+                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator, stored.serverFreshForMillis)
             } else {
                 null // a version newer than this build can read: drop (app downgrade)
             }
@@ -478,14 +478,14 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         return when {
             storedVersion == schemaVersion -> {
                 val stored = json.decodeFromString(storedSerializer, text)
-                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator)
+                PersistedEntry(stored.value, stored.writtenAtMillis, stored.validator, stored.serverFreshForMillis)
             }
             storedVersion > schemaVersion -> null // an app downgrade: this build can't know the shape
             else -> {
                 val stored = json.decodeFromString(rawSerializer, text)
                 val element = migrate(storedVersion, stored.value) ?: return null
                 val value = json.decodeFromJsonElement(valueSerializer, element)
-                PersistedEntry(value, stored.writtenAtMillis, stored.validator)
+                PersistedEntry(value, stored.writtenAtMillis, stored.validator, stored.serverFreshForMillis)
             }
         }
     }
@@ -514,6 +514,10 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
         val value: V,
         // Defaulted for forward compatibility: pre-validator cache files decode as null.
         val validator: String? = null,
+        // Defaulted so cache files written before server-driven freshness decode as null; with
+        // encodeDefaults off a null writes no field, so an entry without it is byte-for-byte the
+        // old format.
+        val serverFreshForMillis: Long? = null,
         // Defaulted so pre-migration cache files decode as version 0; with encodeDefaults off
         // a version-0 store writes no version field, so opting out is byte-for-byte the old format.
         val schemaVersion: Int = 0,

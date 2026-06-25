@@ -50,4 +50,11 @@ public data class PersistedEntry<V : Any>(
      * that persist it keep conditional fetching cheap across process restarts.
      */
     val validator: String? = null,
+    /**
+     * Server-declared remaining lifetime at [writtenAtMillis], in whole milliseconds (a `Long`
+     * for on-disk format stability, like [writtenAtMillis]); `null` when the origin expressed
+     * no opinion. Derived from [FetchResult.Fresh.freshFor]; a store that persists it makes the
+     * server's freshness horizon authoritative across process restarts (see that field).
+     */
+    val serverFreshForMillis: Long? = null,
 )

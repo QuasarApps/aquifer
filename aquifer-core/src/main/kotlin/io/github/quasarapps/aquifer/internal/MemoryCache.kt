@@ -23,6 +23,8 @@ internal class MemoryCache<K : Any, V : Any>(private val maxEntries: Int) {
         val sequence: Long,
         /** Revalidation token for conditional fetchers; see [PersistedEntry.validator]. */
         val validator: String? = null,
+        /** Server-declared remaining lifetime in whole ms; see [PersistedEntry.serverFreshForMillis]. */
+        val serverFreshForMillis: Long? = null,
     )
 
     private val lock = Any()
