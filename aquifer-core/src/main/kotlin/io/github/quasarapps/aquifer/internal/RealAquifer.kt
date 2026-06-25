@@ -464,10 +464,11 @@ internal class RealAquifer<K : Any, V : Any>(
         // serve-stale-then-revalidate).
         val cached = LinkedHashMap<K, V>()
         val toFetch = LinkedHashSet<K>()
+        // Reads every non-NetworkOnly key in one batched load — unlike keysNeedingFetch — because
+        // it also needs the cached value for stale-if-error fallback, not just the fetch decision.
+        val loaded = if (freshness == Freshness.NetworkOnly) emptyMap() else loadAll(keys)
         for (key in keys) {
-            // Reads every non-NetworkOnly key — unlike keysNeedingFetch — because it also needs
-            // the cached value for stale-if-error fallback, not just the fetch decision.
-            val entry = if (freshness == Freshness.NetworkOnly) null else load(key)?.entry
+            val entry = loaded[key]?.entry
             if (entry != null) cached[key] = entry.value
             val usable = entry != null &&
                 !isExpired(key, entry.writtenAtMillis, entryFreshFor = entry.serverFreshForMillis?.milliseconds)
@@ -519,12 +520,12 @@ internal class RealAquifer<K : Any, V : Any>(
      */
     private suspend fun keysNeedingFetch(keys: Set<K>, freshness: Freshness, reportSuppression: Boolean): Set<K> {
         val toFetch = LinkedHashSet<K>()
+        val loaded = when (freshness) {
+            Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> loadAll(keys)
+            else -> emptyMap()
+        }
         for (key in keys) {
-            val entry = when (freshness) {
-                Freshness.CacheFirst, Freshness.StaleWhileRevalidate -> load(key)?.entry
-                else -> null
-            }
-            if (shouldFetch(key, freshness, entry, report = reportSuppression)) toFetch += key
+            if (shouldFetch(key, freshness, loaded[key]?.entry, report = reportSuppression)) toFetch += key
         }
         return toFetch
     }
@@ -657,8 +658,9 @@ internal class RealAquifer<K : Any, V : Any>(
      */
     private suspend fun runBatch(keys: Set<K>): Map<K, FetchResult<V>> {
         conditionalBatchFetcher?.let { batch ->
+            val loaded = loadAll(keys)
             val validators = LinkedHashMap<K, String?>(keys.size)
-            for (key in keys) validators[key] = load(key)?.entry?.validator
+            for (key in keys) validators[key] = loaded[key]?.entry?.validator
             return batch(validators)
         }
         val batch = checkNotNull(batchFetcher) { "runBatch requires a batch fetcher" }
@@ -1127,6 +1129,56 @@ internal class RealAquifer<K : Any, V : Any>(
                 else -> null
             }
         }
+    }
+
+    /**
+     * The batched twin of [load] for the multi-key read paths ([getAll], [keysNeedingFetch],
+     * [runBatch]): memory hits resolve without I/O, and every memory miss is read from the source
+     * of truth in a single [SourceOfTruth.readAll] call instead of N. Each miss is fenced exactly
+     * as [load] — its epoch is captured before the batched read and re-checked under [commitGuard]
+     * with a memory re-read — so a put/invalidate racing the read neither resurrects a deleted
+     * entry nor overwrites a fresher commit. Keys with nothing cached are absent from the result.
+     */
+    private suspend fun loadAll(keys: Collection<K>): Map<K, Snapshot<V>> {
+        val result = LinkedHashMap<K, Snapshot<V>>(keys.size)
+        val store = persistence
+        // Epoch snapshot per memory-miss key, captured before the batched read like load() does.
+        val epochs = if (store == null) null else LinkedHashMap<K, Pair<Long, Long>>()
+        for (key in keys) {
+            val cached = memory.get(key)
+            when {
+                cached != null -> result[key] = Snapshot(cached, Origin.MEMORY)
+                store != null -> epochs!![key] = epochOf(key)
+            }
+        }
+        if (store == null || epochs!!.isEmpty()) return result
+        val persisted = store.readAll(epochs.keys)
+        if (persisted.isEmpty()) return result
+        commitGuard.withLock {
+            for ((key, entry) in persisted) {
+                val epoch = epochs[key] ?: continue // a store returning an unrequested key: ignore it
+                val existing = memory.get(key)
+                when {
+                    existing != null -> result[key] = Snapshot(existing, Origin.MEMORY)
+
+                    epochOf(key) == epoch -> {
+                        val hydrated =
+                            MemoryCache.Entry(
+                                entry.value,
+                                entry.writtenAtMillis,
+                                sequencer.incrementAndGet(),
+                                entry.validator,
+                                entry.serverFreshForMillis,
+                            )
+                        memory.put(key, hydrated)
+                        result[key] = Snapshot(hydrated, Origin.PERSISTENCE)
+                    }
+                    // else: the epoch moved (a put/invalidate landed during the read) — omit the
+                    // key so a deleted entry is never resurrected, exactly as load() does.
+                }
+            }
+        }
+        return result
     }
 
     /**

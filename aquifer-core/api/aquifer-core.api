@@ -311,12 +311,14 @@ public abstract interface class io/github/quasarapps/aquifer/SourceOfTruth {
 	public abstract fun deleteAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteMany (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun read (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readAll (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun write (Ljava/lang/Object;Lio/github/quasarapps/aquifer/PersistedEntry;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun writeAll (Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/quasarapps/aquifer/SourceOfTruth$DefaultImpls {
 	public static fun deleteMany (Lio/github/quasarapps/aquifer/SourceOfTruth;Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun readAll (Lio/github/quasarapps/aquifer/SourceOfTruth;Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun writeAll (Lio/github/quasarapps/aquifer/SourceOfTruth;Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

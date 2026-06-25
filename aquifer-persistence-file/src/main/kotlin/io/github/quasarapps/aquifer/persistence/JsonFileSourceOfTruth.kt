@@ -210,20 +210,37 @@ public class JsonFileSourceOfTruth<K : Any, V : Any>(
     private val index = LinkedHashMap<String, Long>()
     private var totalBytes = 0L
 
-    override suspend fun read(key: K): PersistedEntry<V>? = withContext(ioContext) {
+    override suspend fun read(key: K): PersistedEntry<V>? = withContext(ioContext) { readOne(key) }
+
+    override suspend fun readAll(keys: Collection<K>): Map<K, PersistedEntry<V>> = withContext(ioContext) {
+        if (keys.isEmpty()) return@withContext emptyMap()
+        // One I/O dispatch and one housekeeping check (readOne's ensureHousekeeping is a cheap
+        // no-op after the first) cover the whole batch; each key is otherwise read exactly as the
+        // single read() — independent files, so the per-key decode/heal/recency stays identical.
+        val result = LinkedHashMap<K, PersistedEntry<V>>(keys.size)
+        for (key in keys) readOne(key)?.let { result[key] = it }
+        result
+    }
+
+    /**
+     * One key's read, off the [ioContext] dispatch so [read] and [readAll] can share it: returns
+     * the decoded entry, `null` for a missing or transiently unreadable file, and heals (deletes)
+     * a corrupt one. The caller is responsible for the [withContext] hop.
+     */
+    private suspend fun readOne(key: K): PersistedEntry<V>? {
         val file = fileFor(key)
-        try {
+        return try {
             ensureHousekeeping()
             if (!file.exists()) {
                 forgetIfMissing(file)
-                return@withContext null
+                return null
             }
             // Recency is bumped when the read observes the file, not after the decode, so a
             // slow read can't lose its place to an eviction pass racing it.
             recordAccess(file)
             val raw = file.readBytes()
             val text = (cipher?.decrypt(raw, aadFor(key)) ?: raw).decodeToString()
-            decodeStored(text) ?: return@withContext heal(file)
+            decodeStored(text) ?: heal(file)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: SerializationException) {

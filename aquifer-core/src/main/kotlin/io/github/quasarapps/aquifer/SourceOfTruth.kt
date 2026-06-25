@@ -19,10 +19,10 @@ package io.github.quasarapps.aquifer
  *   ([Aquifer.put], [Aquifer.invalidate], [Aquifer.invalidateAll]); the background
  *   write-through after a successful fetch is best-effort, and a failure there is swallowed
  *   so a fetched value is never lost to a storage error.
- * - The bulk operations [writeAll]/[deleteMany] default to the single-key methods in iteration
- *   order, so they inherit those methods' contract and are not atomic unless an override makes
- *   them so. Override them when the backend can do the batch in one transaction or amortize
- *   per-call bookkeeping; the default keeps existing implementations source-compatible.
+ * - The bulk operations [readAll]/[writeAll]/[deleteMany] default to the single-key methods in
+ *   iteration order, so they inherit those methods' contract and are not atomic unless an override
+ *   makes them so. Override them when the backend can do the batch in one query/transaction or
+ *   amortize per-call bookkeeping; the default keeps existing implementations source-compatible.
  *
  * See `aquifer-persistence-file` for a ready-made JSON-files implementation.
  */
@@ -39,6 +39,20 @@ public interface SourceOfTruth<K : Any, V : Any> {
 
     /** Removes all entries written by this source of truth. */
     public suspend fun deleteAll()
+
+    /**
+     * Returns the persisted entries for every key in [keys] that has one — the bulk equivalent of
+     * [read], used by the multi-key read paths ([Aquifer.getAll]/[Aquifer.streamMany]). The default
+     * reads each key via [read] in iteration order; override it when the backend can fetch a batch
+     * in one query (e.g. a SQL `IN`). Keys with no stored entry — or an unreadable one — are omitted
+     * from the result, exactly as [read] returns `null` for them. May be invoked concurrently with
+     * any other method.
+     */
+    public suspend fun readAll(keys: Collection<K>): Map<K, PersistedEntry<V>> {
+        val result = LinkedHashMap<K, PersistedEntry<V>>(keys.size)
+        for (key in keys) read(key)?.let { result[key] = it }
+        return result
+    }
 
     /**
      * Persists every entry in [entries], replacing any previous entry for those keys — the bulk
