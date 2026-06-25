@@ -1,0 +1,7 @@
+# Treat sources as text and always render a textual diff, even when a test fixture
+# embeds a control byte (e.g. the NUL in a filesystem-hostile-key string) that would
+# otherwise make git/GitHub fall back to a "Binary files differ" diff.
+*.kt    text diff
+*.kts   text diff
+*.java  text diff
+*.api   text diff

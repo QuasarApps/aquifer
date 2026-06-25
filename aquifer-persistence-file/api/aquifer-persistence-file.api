@@ -4,8 +4,10 @@ public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTrut
 	public synthetic fun <init> (Ljava/nio/file/Path;Lkotlinx/serialization/KSerializer;Lkotlin/jvm/functions/Function1;Lkotlinx/serialization/json/Json;Lkotlin/coroutines/CoroutineContext;Ljava/lang/Integer;Ljava/lang/Long;ILkotlin/jvm/functions/Function2;Lio/github/quasarapps/aquifer/persistence/ValueCipher;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun delete (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteMany (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun read (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun write (Ljava/lang/Object;Lio/github/quasarapps/aquifer/PersistedEntry;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun writeAll (Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTruth$Companion {

@@ -119,6 +119,32 @@ class BoundedJsonFileSourceOfTruthTest {
     }
 
     @Test
+    fun `writeAll over maxBytes evicts eldest until the total fits`() = runTest {
+        // The batched override commits N renames under one lock; this proves its byte accounting
+        // and eviction match the per-key write() path, not just the entry-count path.
+        val entryBytes = measuredEntryBytes(payloadLength = 1000)
+        val store = store(maxBytes = entryBytes * 5 / 2) // 2.5 entries: two fit, three cannot
+        store.writeAll(
+            linkedMapOf(
+                "a" to PersistedEntry(Payload("x".repeat(1000)), 1),
+                "b" to PersistedEntry(Payload("y".repeat(1000)), 2),
+                "c" to PersistedEntry(Payload("z".repeat(1000)), 3),
+            ),
+        )
+
+        assertNull(store.read("a")) // eldest evicted within the batch commit
+        assertEquals(1000, store.read("b")?.value?.data?.length)
+        assertEquals(1000, store.read("c")?.value?.data?.length)
+
+        // Budget is tracked in bytes, not just file count: a later large write evicts the new
+        // eldest rather than overflowing the cap.
+        store.put("d", data = "w".repeat(1000))
+        assertNull(store.read("b"))
+        assertEquals(1000, store.read("c")?.value?.data?.length)
+        assertEquals(1000, store.read("d")?.value?.data?.length)
+    }
+
+    @Test
     fun `an entry larger than maxBytes alone never persists`() = runTest {
         // One byte short of a single entry: the write lands and is immediately evicted.
         val entryBytes = measuredEntryBytes(payloadLength = 1000)
@@ -152,6 +178,28 @@ class BoundedJsonFileSourceOfTruthTest {
 
         assertEquals("b", store.read("b")?.value?.data)
         assertEquals("c", store.read("c")?.value?.data)
+    }
+
+    @Test
+    fun `deleteMany frees the byte budget so a later write keeps the surviving entries`() = runTest {
+        // Deletes a middle entry, then writes one more. If deleteMany failed to subtract the
+        // deleted entry's bytes, the new write would push the total over budget and evict the
+        // eldest *live* entry ("a"); correct accounting keeps all three survivors.
+        val entryBytes = measuredEntryBytes(payloadLength = 1000)
+        val store = store(maxBytes = entryBytes * 7 / 2) // 3.5 entries: three fit
+        store.put("a", data = "x".repeat(1000))
+        store.put("b", data = "y".repeat(1000))
+        store.put("c", data = "z".repeat(1000)) // a, b, c at 3.0 of 3.5
+
+        store.deleteMany(listOf("b")) // frees b's bytes; a and c remain at 2.0
+
+        store.put("d", data = "w".repeat(1000)) // a, c, d at 3.0 — fits only if b's bytes were freed
+
+        assertEquals(1000, store.read("a")?.value?.data?.length, "eldest live entry must survive")
+        assertNull(store.read("b"))
+        assertEquals(1000, store.read("c")?.value?.data?.length)
+        assertEquals(1000, store.read("d")?.value?.data?.length)
+        assertEquals(3, jsonFileCount())
     }
 
     @Test
