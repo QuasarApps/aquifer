@@ -342,6 +342,12 @@ validator, same `HttpException`), and `Call.await()` is public if you'd rather h
 No OkHttp at all? Implement the two-line `when` yourself — the
 `conditionalFetcher { key, validator -> FetchResult }` contract is transport-agnostic.
 
+Pass `okHttpConditionalFetcher(..., respectCacheControl = true)` to let the origin drive
+freshness: a 2xx response's `Cache-Control: max-age` (minus any `Age`) becomes the entry's
+[`freshFor`](#freshness-decides-the-cachenetwork-dance), `no-store`/`no-cache`/`max-age=0` mark
+it immediately stale, and `Expires` is the fallback. It's off by default, and the precedence is
+always per-call `maxAge` → server `freshFor` → store `timeToLive`.
+
 ### Negative caching
 
 A failing endpoint shouldn't be hammered by every screen that asks. Opt in per store:

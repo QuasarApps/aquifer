@@ -6,6 +6,9 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
 import java.net.HttpURLConnection
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Builds a [conditional fetcher][io.github.quasarapps.aquifer.AquiferBuilder.conditionalFetcher]
@@ -48,11 +51,16 @@ import java.net.HttpURLConnection
  *   top of it.
  * @param parse decodes a successful response's body into a value. Runs inside the fetch, so
  *   thrown exceptions fail the fetch normally.
+ * @param respectCacheControl when `true`, a 2xx response's `Cache-Control`/`Expires` headers are
+ *   parsed into the entry's [FetchResult.Fresh.freshFor] server lifetime (`max-age` minus `Age`;
+ *   `no-store`/`no-cache`/`max-age=0` → immediately stale; `Expires` as a fallback). Off by
+ *   default, so the store's own `timeToLive` governs unless you opt in.
  */
 public fun <K : Any, V : Any> okHttpConditionalFetcher(
     callFactory: Call.Factory,
     request: (key: K) -> Request,
     parse: suspend (key: K, body: ResponseBody) -> V,
+    respectCacheControl: Boolean = false,
 ): suspend (key: K, validator: String?) -> FetchResult<V> = { key, validator ->
     val conditional = request(key).withValidatorHeaders(validator)
     callFactory.newCall(conditional).await().use { response ->
@@ -66,7 +74,8 @@ public fun <K : Any, V : Any> okHttpConditionalFetcher(
                 val body = checkNotNull(response.body) {
                     "HTTP ${response.code} from ${response.request.url} had no body"
                 }
-                FetchResult.Fresh(parse(key, body), validatorOf(response))
+                val freshFor = if (respectCacheControl) parseServerFreshness(response) else null
+                FetchResult.Fresh(parse(key, body), validatorOf(response), freshFor)
             }
         }
     }
@@ -101,3 +110,28 @@ private fun validatorOf(response: Response): String? {
     if (etag.isEmpty() && lastModified.isEmpty()) return null
     return "$etag$VALIDATOR_SEPARATOR$lastModified"
 }
+
+/**
+ * Derives the server-declared freshness lifetime ([FetchResult.Fresh.freshFor]) from a response's
+ * `Cache-Control`/`Expires` headers, or `null` when the origin expressed no opinion. `no-store`,
+ * `no-cache`, and `max-age=0` map to [Duration.ZERO] (immediately stale — revalidate on the next
+ * read); `max-age` is reduced by any `Age`; `Expires` is consulted only when there is no `max-age`
+ * directive, measured against the response `Date` (or its local receipt time when absent). Every
+ * result is floored at [Duration.ZERO], and a malformed header yields `null` rather than failing
+ * the fetch. Shared-proxy directives (`s-maxage`, `private`, …) are ignored.
+ */
+private fun parseServerFreshness(response: Response): Duration? = runCatching {
+    val cacheControl = response.cacheControl
+    when {
+        cacheControl.noStore || cacheControl.noCache -> Duration.ZERO
+        cacheControl.maxAgeSeconds >= 0 -> {
+            val ageSeconds = response.header("Age")?.toLongOrNull() ?: 0L
+            (cacheControl.maxAgeSeconds.toLong() - ageSeconds).coerceAtLeast(0L).seconds
+        }
+        else -> {
+            val expiresMillis = response.headers.getDate("Expires")?.time ?: return@runCatching null
+            val referenceMillis = response.headers.getDate("Date")?.time ?: response.receivedResponseAtMillis
+            (expiresMillis - referenceMillis).coerceAtLeast(0L).milliseconds
+        }
+    }
+}.getOrNull()
