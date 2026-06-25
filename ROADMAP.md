@@ -124,19 +124,24 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   single reads). Whole-batch retry, per-key miss (`BatchKeyMissingException`), and the
   `NotModified`-without-validator contract violation all carry over; the auto-coalescing window
   stays `batchFetcher`-only. *(M)*
-- [ ] **Typed OkHttp errors** — `okHttpConditionalFetcher` collapses every non-2xx/304 into a
-  bare `IOException` whose only status signal is the message string, so `retry`'s `retryOn`
-  predicate and `negativeCache` branch blind to status: a permanent 404 burns every retry
-  attempt. Throw a typed `HttpException(code, …)` and expose a mapping seam so callers can route
-  404 → empty, retry only 5xx, etc. A small change that unblinds the resilience machinery. *(S)*
-- [ ] **Plain `okHttpFetcher` + public `Call.await` seam** — a non-conditional OkHttp fetcher
-  for backends without ETag/Last-Modified validators. Today only the conditional helper ships
-  and the suspend `Call.await` bridge is private, so a plain JSON-over-OkHttp fetcher must be
-  hand-rolled. *(S)*
-- [ ] **Cache-Control-aware freshness (design first)** — optionally let an origin's
-  `Cache-Control`/`Expires` inform the staleness decision. Needs an explicit precedence design
-  (server `max-age` vs builder TTL vs per-call `maxAge` vs `ttlJitter`) before any code, because
-  *the app declares how fresh data must be* is a deliberate stance here, not an oversight. *(M)*
+- [x] **Typed OkHttp errors** (shipped — #48) — `okHttpConditionalFetcher` collapsed every
+  non-2xx/304 into a bare `IOException` whose only status signal was the message string, so
+  `retry`'s `retryOn` predicate and `negativeCache` branched blind to status: a permanent 404
+  burned every retry attempt. Now throws a typed `HttpException(code, url)` (still an
+  `IOException`, so it flows through the normal failure path) that callers can branch on to route
+  404 → empty, retry only 5xx, etc. *(S)*
+- [x] **Plain `okHttpFetcher` + public `Call.await` seam** (shipped — #49) — a non-conditional
+  OkHttp fetcher for backends without ETag/Last-Modified validators, plus the suspend
+  `Call.await` bridge promoted to public API, so a plain JSON-over-OkHttp fetcher no longer has
+  to be hand-rolled. *(S)*
+- [x] **Cache-Control-aware freshness** (design first; shipped — #50, #51) — an origin's
+  `Cache-Control`/`Expires` can inform the staleness decision under an explicit precedence
+  (per-call `maxAge` > server `freshFor` > builder `timeToLive`; server freshness is never
+  jittered). Core seam #50 added `FetchResult.Fresh(value, validator, freshFor)` — stored next to
+  the value, carried forward across a 304, persisted in `PersistedEntry`/the JSON file store;
+  #51 wired `okHttpConditionalFetcher(respectCacheControl = true)` to parse `max-age` (minus
+  `Age`), `no-store`/`no-cache`/`max-age=0` → immediately stale, and `Expires` as a fallback.
+  Opt-in, so *the app declares how fresh data must be* stays the default stance. *(M)*
 - [ ] **#12 — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
   commit throughput against a real file store; implement per-key lock striping only if the
   numbers justify it (constraints documented in the issue). *(M–L)*
