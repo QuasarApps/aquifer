@@ -17,6 +17,8 @@ internal sealed interface Event<out K : Any, out V : Any> {
         val writtenAtMillis: Long,
         /** Commit order, from the store's sequencer — monotone even when the clock isn't. */
         val sequence: Long,
+        /** Server-declared remaining lifetime in whole ms; see [PersistedEntry.serverFreshForMillis]. */
+        val serverFreshForMillis: Long? = null,
     ) : Event<K, V>
 
     /** A fetch actually started for [key] (emitted once per shared in-flight fetch). */

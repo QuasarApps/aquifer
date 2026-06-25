@@ -182,13 +182,15 @@ public abstract interface class io/github/quasarapps/aquifer/FetchResult {
 }
 
 public final class io/github/quasarapps/aquifer/FetchResult$Fresh : io/github/quasarapps/aquifer/FetchResult {
-	public fun <init> (Ljava/lang/Object;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;Lkotlin/time/Duration;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/Object;
 	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/Object;Ljava/lang/String;)Lio/github/quasarapps/aquifer/FetchResult$Fresh;
-	public static synthetic fun copy$default (Lio/github/quasarapps/aquifer/FetchResult$Fresh;Ljava/lang/Object;Ljava/lang/String;ILjava/lang/Object;)Lio/github/quasarapps/aquifer/FetchResult$Fresh;
+	public final fun component3-FghU774 ()Lkotlin/time/Duration;
+	public final fun copy-moChb0s (Ljava/lang/Object;Ljava/lang/String;Lkotlin/time/Duration;)Lio/github/quasarapps/aquifer/FetchResult$Fresh;
+	public static synthetic fun copy-moChb0s$default (Lio/github/quasarapps/aquifer/FetchResult$Fresh;Ljava/lang/Object;Ljava/lang/String;Lkotlin/time/Duration;ILjava/lang/Object;)Lio/github/quasarapps/aquifer/FetchResult$Fresh;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFreshFor-FghU774 ()Lkotlin/time/Duration;
 	public final fun getValidator ()Ljava/lang/String;
 	public final fun getValue ()Ljava/lang/Object;
 	public fun hashCode ()I
@@ -272,14 +274,16 @@ public final class io/github/quasarapps/aquifer/Origin : java/lang/Enum {
 }
 
 public final class io/github/quasarapps/aquifer/PersistedEntry {
-	public fun <init> (Ljava/lang/Object;JLjava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/Object;JLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/Object;JLjava/lang/String;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/Object;JLjava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/Object;
 	public final fun component2 ()J
 	public final fun component3 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/Object;JLjava/lang/String;)Lio/github/quasarapps/aquifer/PersistedEntry;
-	public static synthetic fun copy$default (Lio/github/quasarapps/aquifer/PersistedEntry;Ljava/lang/Object;JLjava/lang/String;ILjava/lang/Object;)Lio/github/quasarapps/aquifer/PersistedEntry;
+	public final fun component4 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/Object;JLjava/lang/String;Ljava/lang/Long;)Lio/github/quasarapps/aquifer/PersistedEntry;
+	public static synthetic fun copy$default (Lio/github/quasarapps/aquifer/PersistedEntry;Ljava/lang/Object;JLjava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Lio/github/quasarapps/aquifer/PersistedEntry;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getServerFreshForMillis ()Ljava/lang/Long;
 	public final fun getValidator ()Ljava/lang/String;
 	public final fun getValue ()Ljava/lang/Object;
 	public final fun getWrittenAtMillis ()J

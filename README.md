@@ -139,6 +139,14 @@ val any = users.get(id, maxAge = Duration.INFINITE)   // serve anything cached, 
 users.stream(id, maxAge = 1.minutes)                  // this stream's staleness bar, no one else's
 ```
 
+A fetcher can also declare a per-entry lifetime the origin chose — return
+`FetchResult.Fresh(value, validator, freshFor = 5.minutes)` from a `conditionalFetcher` (e.g.
+mapped from an HTTP `Cache-Control: max-age`). The precedence, highest first, is **per-call
+`maxAge` → server `freshFor` → store-wide `timeToLive`**: an explicit caller bar wins, then the
+origin's declared lifetime, then the store default (only the store default is jittered). A
+`SourceOfTruth` persists `freshFor`, so it survives restarts; `Duration.ZERO` means "revalidate
+on next read", and a `null` (the default) means the origin had no opinion.
+
 Warm what the user is about to open — fire-and-forget, no coroutine needed at the call site:
 
 ```kotlin
