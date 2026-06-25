@@ -1,3 +1,6 @@
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.kotlin.android) apply false
@@ -23,6 +26,26 @@ subprojects {
 
     dependencies {
         "detektPlugins"(detektFormatting)
+    }
+}
+
+// CI-only: run every Test task on a specific JDK launcher so JVM-11 bytecode is proven to
+// execute on a real JDK 11 runtime (compilation still targets JVM_11 regardless). Off by
+// default — normal builds run tests on the Gradle daemon JDK, unchanged. CI enables it with
+// -PtestJvm=11; the JDK is provisioned by setup-java and discovered via
+// -Dorg.gradle.java.installations.fromEnv (no foojay, no auto-download).
+providers.gradleProperty("testJvm").map(String::toInt).orNull?.let { testJvm ->
+    val requested = JavaLanguageVersion.of(testJvm)
+    subprojects {
+        // Resolve the service per-subproject: java-base (applied by the Kotlin JVM / Android
+        // plugins) registers JavaToolchainService on the subproject, not on the root project.
+        plugins.withId("java-base") {
+            val launcher = extensions.getByType<JavaToolchainService>()
+                .launcherFor { languageVersion.set(requested) }
+            tasks.withType<Test>().configureEach {
+                javaLauncher.set(launcher)
+            }
+        }
     }
 }
 

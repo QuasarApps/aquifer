@@ -11,7 +11,9 @@ Thanks for your interest in Aquifer!
 ./gradlew dokkaGenerate  # aggregated API docs in build/dokka/
 ```
 
-Requirements: JDK 17+ (CI uses 21) and an Android SDK for `:aquifer-android` (point
+Requirements: JDK 17+ to run the build. CI builds and tests on JDK 17 and 21, and separately
+runs the JVM modules' tests on a JDK 11 launcher to prove the JVM-11 bytecode target actually
+executes on a Java 11 runtime. You also need an Android SDK for `:aquifer-android` (point
 `local.properties`' `sdk.dir` or `ANDROID_HOME` at it; compileSdk 35). The Gradle wrapper
 handles everything else.
 
