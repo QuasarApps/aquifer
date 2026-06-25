@@ -1,7 +1,7 @@
 public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTruth : io/github/quasarapps/aquifer/SourceOfTruth {
 	public static final field Companion Lio/github/quasarapps/aquifer/persistence/JsonFileSourceOfTruth$Companion;
-	public fun <init> (Ljava/nio/file/Path;Lkotlinx/serialization/KSerializer;Lkotlin/jvm/functions/Function1;Lkotlinx/serialization/json/Json;Lkotlin/coroutines/CoroutineContext;Ljava/lang/Integer;Ljava/lang/Long;)V
-	public synthetic fun <init> (Ljava/nio/file/Path;Lkotlinx/serialization/KSerializer;Lkotlin/jvm/functions/Function1;Lkotlinx/serialization/json/Json;Lkotlin/coroutines/CoroutineContext;Ljava/lang/Integer;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/nio/file/Path;Lkotlinx/serialization/KSerializer;Lkotlin/jvm/functions/Function1;Lkotlinx/serialization/json/Json;Lkotlin/coroutines/CoroutineContext;Ljava/lang/Integer;Ljava/lang/Long;ILkotlin/jvm/functions/Function2;Lio/github/quasarapps/aquifer/persistence/ValueCipher;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Lkotlinx/serialization/KSerializer;Lkotlin/jvm/functions/Function1;Lkotlinx/serialization/json/Json;Lkotlin/coroutines/CoroutineContext;Ljava/lang/Integer;Ljava/lang/Long;ILkotlin/jvm/functions/Function2;Lio/github/quasarapps/aquifer/persistence/ValueCipher;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun delete (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun read (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -10,5 +10,10 @@ public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTrut
 
 public final class io/github/quasarapps/aquifer/persistence/JsonFileSourceOfTruth$Companion {
 	public final fun getDEFAULT_JSON ()Lkotlinx/serialization/json/Json;
+}
+
+public abstract interface class io/github/quasarapps/aquifer/persistence/ValueCipher {
+	public abstract fun decrypt ([B[B)[B
+	public abstract fun encrypt ([B[B)[B
 }
 

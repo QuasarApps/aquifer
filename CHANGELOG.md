@@ -7,6 +7,39 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — encryption at rest (JsonFileSourceOfTruth)
+
+- `JsonFileSourceOfTruth` gains a `cipher: ValueCipher?` parameter (also on the
+  `jsonFileSourceOfTruth(...)` factory). `ValueCipher` is a two-method
+  `encrypt(plaintext, associatedData)` / `decrypt(ciphertext, associatedData)` seam applied to
+  each entry's serialized bytes, so sensitive values aren't stored as plaintext JSON. It depends
+  on nothing beyond the JDK, so production crypto — e.g. Google Tink's `Aead` backed by the
+  Android Keystore — plugs in through a thin adapter. The on-disk bytes (and the `maxBytes`
+  budget) are the ciphertext, so a nonce/tag is accounted for at its real size, and a `decrypt`
+  that throws `java.security.GeneralSecurityException` (wrong key, tampered or truncated file)
+  heals the slot and refetches like any other corrupt entry. The entry's key is passed as
+  authenticated associated data, binding each ciphertext to its key, so a blob relocated to a
+  different key's file on disk is rejected (and healed), not served as that key's value.
+  Encryption composes with bounding, conditional fetching (validators ride inside the encrypted
+  envelope), and `schemaVersion`/`migrate` (migration sees the decrypted tree). `null` (the
+  default) stores plaintext, unchanged.
+
+### Added — schema migration (JsonFileSourceOfTruth)
+
+- `JsonFileSourceOfTruth` gains `schemaVersion: Int = 0` and
+  `migrate: (fromVersion: Int, value: JsonElement) -> JsonElement?` (also on the
+  `jsonFileSourceOfTruth(...)` factory). A breaking model change — a removed or retyped field —
+  no longer means wiping the cache directory: stamp writes with a `schemaVersion` and supply a
+  `migrate` that rewrites an older entry's stored JSON to the current shape. Migration runs
+  lazily on read (the entry is rewritten in the new format the next time it is written) and only
+  for entries stored *below* the current version, which it receives so one callback can step
+  across several. Returning `null` drops the entry (healed away, then refetched), as does an
+  entry stored *above* the current version (an app downgrade), and a migrated tree that still
+  fails to decode. A version-0 store (the default) writes no version field and migrates nothing;
+  under the default `Json` (`encodeDefaults` off) that is byte-for-byte the previous on-disk
+  format, so existing caches and call sites are unaffected (a caller that enables `encodeDefaults`
+  emits `"schemaVersion":0`, as for any other defaulted field).
+
 ### Added — stats (cache counters)
 
 - `Aquifer.stats(): CacheStats`: a non-suspending snapshot of per-store cache counters — `hits`,

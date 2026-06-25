@@ -237,6 +237,55 @@ least-recently-used eviction, and temp files orphaned by a crash are cleaned up 
 use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight, or
 DataStore — it's four suspend functions.
 
+Adding a field to your model is safe by default (unknown keys are ignored). For a *breaking*
+change — a removed or retyped field — stamp writes with a `schemaVersion` and supply a
+`migrate` so old cache files upgrade in place instead of being wiped:
+
+```kotlin
+jsonFileSourceOfTruth<UserId, User>(             // User v2: { id, firstName, lastName }
+    directory = dir,
+    schemaVersion = 2,
+    migrate = { fromVersion, value ->            // value is the stored JSON tree
+        when (fromVersion) {
+            0, 1 -> buildJsonObject {            // v0/v1 stored a single "name"
+                val obj = value.jsonObject
+                put("id", obj.getValue("id"))
+                val parts = obj.getValue("name").jsonPrimitive.content.split(" ", limit = 2)
+                put("firstName", parts.first())
+                put("lastName", parts.getOrElse(1) { "" })
+            }
+            else -> null                         // unknown older version: drop and refetch
+        }
+    },
+)
+```
+
+Migration runs lazily on read (the entry is rewritten in the new format the next time it's
+written) and only for entries below the current `schemaVersion`. Returning `null` drops the
+entry — as does one stored at a *higher* version (an app downgrade). A version-0 store (the
+default) writes no version field under the default `Json` (`encodeDefaults` off), so opting in is
+byte-for-byte the old on-disk format; a caller that supplies `Json { encodeDefaults = true }`
+emits `"schemaVersion":0`, as it already does for other defaulted fields.
+
+To keep sensitive values off disk as plaintext, pass a `cipher` — a two-method `ValueCipher`
+(`encrypt`/`decrypt`) applied to each entry's serialized bytes. The seam depends on nothing
+beyond the JDK, so production crypto plugs in with a thin adapter:
+
+```kotlin
+class TinkValueCipher(private val aead: Aead) : ValueCipher {     // Tink + Android Keystore
+    override fun encrypt(plaintext: ByteArray, aad: ByteArray) = aead.encrypt(plaintext, aad)
+    override fun decrypt(ciphertext: ByteArray, aad: ByteArray) = aead.decrypt(ciphertext, aad)
+}
+
+jsonFileSourceOfTruth<UserId, User>(directory = dir, cipher = TinkValueCipher(aead))
+```
+
+The on-disk bytes — and the `maxBytes` budget — are the ciphertext, and a `decrypt` that
+throws `GeneralSecurityException` (wrong key, tampered file) heals the slot like any other
+corrupt entry. The entry's key is passed as authenticated associated data, so a blob copied to
+a different key's file on disk is rejected, not served as that key's value. Encryption composes
+with bounding, conditional fetching, and schema migration.
+
 ### Retries with backoff and jitter
 
 Fetches are not retried by default. Opt in per store:
