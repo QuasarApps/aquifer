@@ -9,9 +9,10 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * Suspends until this [Call] completes, returning its [Response] or throwing the `IOException`
- * OkHttp reports on failure. The call is enqueued on OkHttp's dispatcher (it never blocks the
- * calling thread) and is cancelled when the coroutine is cancelled; if cancellation races a
- * response that already arrived, that response is closed so the connection is not leaked.
+ * OkHttp reports on network failure. The call is enqueued on OkHttp's dispatcher (it never
+ * blocks the calling thread). If the awaiting coroutine is cancelled, the call is cancelled and
+ * the await fails with `CancellationException` (not the `IOException`); a response that races in
+ * after cancellation is closed so the connection is not leaked.
  *
  * This is the bridge [okHttpFetcher] and [okHttpConditionalFetcher] use internally, exposed so
  * a hand-rolled fetcher can `await()` a [Call] without re-implementing the suspend/cancellation
@@ -25,7 +26,10 @@ public suspend fun Call.await(): Response = suspendCancellableCoroutine { contin
             }
 
             override fun onFailure(call: Call, e: IOException) {
-                continuation.resumeWithException(e)
+                // OkHttp can deliver onFailure after the coroutine was cancelled (a cancelled
+                // call surfaces as an IOException). Only resume while still active so that
+                // never races a second completion onto the continuation.
+                if (continuation.isActive) continuation.resumeWithException(e)
             }
         },
     )
