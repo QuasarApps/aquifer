@@ -37,9 +37,9 @@ Owns review quality. Never writes code, never merges.
 
 Aquifer is an offline-first, stale-while-revalidate caching data layer for Kotlin and Android (Kotlin/JVM + Android modules at `JvmTarget.JVM_11` — not Kotlin Multiplatform). Build, test, static-analysis, API, and release mechanics live in `CONTRIBUTING.md` — read it; the rules below are the few high-blast-radius gates an agent must not get wrong.
 
-- Run `./gradlew build` before pushing: it compiles, tests, runs detekt + ktlint, and verifies the locked public API in one shot. CI must be green (build, tests, `apiCheck`).
+- Run `./gradlew build` before pushing: it compiles, tests, runs detekt (with its bundled ktlint formatting rules), and verifies the locked public API in one shot. CI must be green (build, tests, `apiCheck`).
 - After an **intentional** public API change, regenerate with `./gradlew apiDump` and commit the updated `*/api/*.api` files (one per module) in the **same** PR — otherwise `apiCheck` fails the build.
 - Explicit API mode is on: every public symbol needs an explicit visibility modifier and KDoc stating its contract (threading, failure behaviour, defaults).
 - Keep tests deterministic: `runTest`, injected `scope` and `WallClock`, Turbine for stream assertions. `runTest` only runs background work while the test coroutine is suspended, so assert fire-and-forget effects (e.g. stale-while-revalidate refresh) after a suspension point — use the `settle()` helper in `TestHelpers.kt`.
-- Detekt + ktlint run with zero tolerated issues. Prefer fixing over a justified local `@Suppress` (follow the existing precedent); never widen `config/detekt/detekt.yml`.
-- PRs target `develop`; `main` is release-only (releases are cut by pushing a `v*` tag). Include tests for behaviour changes and a README update when the public API grows.
+- Detekt (including its bundled ktlint formatting rules — there is no standalone ktlint task) runs with zero tolerated issues. Prefer fixing over a justified local `@Suppress` (follow the existing precedent); never widen `config/detekt/detekt.yml`.
+- PRs target `develop`, the current integration branch; `main` is release-only (releases are cut by pushing a `v*` tag). Include tests for behaviour changes and a README update when the public API grows.
