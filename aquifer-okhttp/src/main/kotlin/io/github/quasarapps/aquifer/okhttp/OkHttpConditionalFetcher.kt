@@ -37,8 +37,10 @@ import kotlin.coroutines.resumeWithException
  *   the response's `ETag` and `Last-Modified` headers (both kept when both are present;
  *   `null` when neither is — the next fetch is then unconditional).
  * - 304 becomes [FetchResult.NotModified].
- * - Any other status throws [IOException], flowing through Aquifer's normal failure path
- *   (retry policy, `DataState.Failure`, stale-if-error fallbacks).
+ * - Any other status throws [HttpException] (an [IOException]) carrying the response
+ *   [code][HttpException.code], so a retry/negative-cache policy can branch on the status
+ *   (e.g. retry only 5xx). It still flows through Aquifer's normal failure path (retry
+ *   policy, `DataState.Failure`, stale-if-error fallbacks) by default.
  * - [request]'s own conditional headers, if any, are replaced by the validator's.
  * - The call is cancelled if the fetch's coroutine is cancelled; response bodies are always
  *   closed. The validator string is an implementation detail of this helper — treat it as
@@ -62,7 +64,7 @@ public fun <K : Any, V : Any> okHttpConditionalFetcher(
             response.code == HttpURLConnection.HTTP_NOT_MODIFIED -> FetchResult.NotModified
 
             !response.isSuccessful ->
-                throw IOException("HTTP ${response.code} fetching ${response.request.url}")
+                throw HttpException(response.code, response.request.url.toString())
 
             else -> {
                 val body = checkNotNull(response.body) {

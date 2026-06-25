@@ -92,11 +92,21 @@ class OkHttpConditionalFetcherTest {
     }
 
     @Test
-    fun `an error status throws and flows through the normal failure path`() = runTest {
+    fun `an error status throws a typed HttpException carrying the status code`() = runTest {
         server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
 
-        val failure = assertFailsWith<IOException> { fetcher("k", null) }
+        val failure = assertFailsWith<HttpException> { fetcher("k", null) }
+        assertEquals(500, failure.code)
+        assertIs<IOException>(failure) // still flows through the normal fetch-failure path
         assertEquals(true, failure.message?.contains("HTTP 500"))
+    }
+
+    @Test
+    fun `a 404 is reported with its status code so a policy can treat it as terminal`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        val failure = assertFailsWith<HttpException> { fetcher("k", null) }
+        assertEquals(404, failure.code)
     }
 
     @Test

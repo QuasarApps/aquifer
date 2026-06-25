@@ -1,3 +1,9 @@
+public final class io/github/quasarapps/aquifer/okhttp/HttpException : java/io/IOException {
+	public fun <init> (ILjava/lang/String;)V
+	public final fun getCode ()I
+	public final fun getUrl ()Ljava/lang/String;
+}
+
 public final class io/github/quasarapps/aquifer/okhttp/OkHttpConditionalFetcherKt {
 	public static final fun okHttpConditionalFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;)Lkotlin/jvm/functions/Function3;
 }
