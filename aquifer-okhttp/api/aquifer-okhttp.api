@@ -9,7 +9,8 @@ public final class io/github/quasarapps/aquifer/okhttp/HttpException : java/io/I
 }
 
 public final class io/github/quasarapps/aquifer/okhttp/OkHttpConditionalFetcherKt {
-	public static final fun okHttpConditionalFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;)Lkotlin/jvm/functions/Function3;
+	public static final fun okHttpConditionalFetcher (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Z)Lkotlin/jvm/functions/Function3;
+	public static synthetic fun okHttpConditionalFetcher$default (Lokhttp3/Call$Factory;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;ZILjava/lang/Object;)Lkotlin/jvm/functions/Function3;
 }
 
 public final class io/github/quasarapps/aquifer/okhttp/OkHttpFetcherKt {

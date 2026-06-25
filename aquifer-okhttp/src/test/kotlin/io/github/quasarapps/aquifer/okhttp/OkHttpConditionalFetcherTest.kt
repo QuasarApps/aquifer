@@ -14,6 +14,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class OkHttpConditionalFetcherTest {
 
@@ -25,6 +27,16 @@ class OkHttpConditionalFetcherTest {
         request = { key -> Request.Builder().url(server.url("/items/$key")).build() },
         parse = { _, body -> body.string() },
     )
+
+    private val cacheAwareFetcher = okHttpConditionalFetcher<String, String>(
+        callFactory = client,
+        request = { key -> Request.Builder().url(server.url("/items/$key")).build() },
+        parse = { _, body -> body.string() },
+        respectCacheControl = true,
+    )
+
+    private suspend fun freshFor(): Duration? =
+        assertIs<FetchResult.Fresh<String>>(cacheAwareFetcher("k", null)).freshFor
 
     @BeforeEach
     fun start() {
@@ -138,5 +150,70 @@ class OkHttpConditionalFetcherTest {
         fetcher("k", "\"foreign\"") // no separator: treated as a bare ETag, best effort
 
         assertEquals("\"foreign\"", server.takeRequest().getHeader("If-None-Match"))
+    }
+
+    @Test
+    fun `Cache-Control max-age becomes freshFor when respected`() = runTest {
+        server.enqueue(MockResponse().setBody("v").setHeader("Cache-Control", "max-age=300"))
+
+        assertEquals(300.seconds, freshFor())
+    }
+
+    @Test
+    fun `Age is subtracted from max-age`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("v").setHeader("Cache-Control", "max-age=600").setHeader("Age", "200"),
+        )
+
+        assertEquals(400.seconds, freshFor())
+    }
+
+    @Test
+    fun `max-age=0, no-store and no-cache each map to ZERO (immediately stale)`() = runTest {
+        server.enqueue(MockResponse().setBody("v").setHeader("Cache-Control", "max-age=0"))
+        assertEquals(Duration.ZERO, freshFor())
+
+        server.enqueue(MockResponse().setBody("v").setHeader("Cache-Control", "no-store"))
+        assertEquals(Duration.ZERO, freshFor())
+
+        server.enqueue(MockResponse().setBody("v").setHeader("Cache-Control", "no-cache"))
+        assertEquals(Duration.ZERO, freshFor())
+    }
+
+    @Test
+    fun `Expires is a fallback measured against the Date header`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("v")
+                .setHeader("Date", "Mon, 01 Jan 2024 00:00:00 GMT")
+                .setHeader("Expires", "Mon, 01 Jan 2024 00:02:00 GMT"),
+        )
+
+        assertEquals(120.seconds, freshFor())
+    }
+
+    @Test
+    fun `an already-past Expires is ZERO`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("v")
+                .setHeader("Date", "Mon, 01 Jan 2024 00:02:00 GMT")
+                .setHeader("Expires", "Mon, 01 Jan 2024 00:00:00 GMT"),
+        )
+
+        assertEquals(Duration.ZERO, freshFor())
+    }
+
+    @Test
+    fun `no freshness headers yield a null freshFor`() = runTest {
+        server.enqueue(MockResponse().setBody("v"))
+
+        assertNull(freshFor())
+    }
+
+    @Test
+    fun `freshFor stays null when respectCacheControl is off`() = runTest {
+        server.enqueue(MockResponse().setBody("v").setHeader("Cache-Control", "max-age=300"))
+
+        // The default fetcher does not opt in, so server freshness is ignored.
+        assertNull(assertIs<FetchResult.Fresh<String>>(fetcher("k", null)).freshFor)
     }
 }
