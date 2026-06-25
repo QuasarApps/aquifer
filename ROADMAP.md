@@ -19,12 +19,13 @@ Everything else compounds once there's a public artifact.
 - [ ] **Publish v0.1.0 to Maven Central** — add the four secrets from
   [CONTRIBUTING](CONTRIBUTING.md), bump versions off `-SNAPSHOT`, date the CHANGELOG, push
   `v0.1.0`; the guarded release workflow does the rest. *(owner action — S)*
-- [ ] **Repo hygiene** *(owner action — S)* — flip the default branch to `main` and delete the
-  merged development branch once the in-flight work lands. Dependabot's grouped toolchain
-  bumps (#7–#11) were superseded by the #19 refresh and are closed; one open minor bump
-  (#20, junit-bom 5.14.x) remains to triage against the deliberate JVM-11 JUnit pin.
+- [ ] **Repo hygiene** *(owner action — S)* — branching model is settled: `develop` is the
+  integration branch that every PR targets, and `main` is release-only (releases are cut by
+  pushing a `v*` tag). Remaining owner action: set `develop` as the GitHub default branch so
+  PRs and Dependabot target it by default, keeping `main` protected. The earlier Dependabot
+  toolchain bumps (#7–#11, #19, #20) and the #44/#45 follow-ups are all resolved.
 - [ ] **Maven Central badge + install snippet verification** after the first release. *(S)*
-- [ ] **JDK 11/17/21 CI matrix** — CI runs only Temurin 21, but every module compiles to
+- [x] **JDK 11/17/21 CI matrix** (shipped — #46) — CI ran only Temurin 21, but every module compiles to
   JVM-11 bytecode and CONTRIBUTING promises JDK-17 builds; neither is actually tested, so a
   newer-API slip or 11-incompatible bytecode could ship undetected. A cheap matrix turns two
   stated-but-unverified compatibility claims into tested guarantees before the first artifact
