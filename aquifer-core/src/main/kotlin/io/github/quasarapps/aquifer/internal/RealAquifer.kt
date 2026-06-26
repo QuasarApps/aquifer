@@ -1142,16 +1142,22 @@ internal class RealAquifer<K : Any, V : Any>(
     private suspend fun loadAll(keys: Collection<K>): Map<K, Snapshot<V>> {
         val result = LinkedHashMap<K, Snapshot<V>>(keys.size)
         val store = persistence
+        if (store == null) {
+            // No persistence: memory hits are the only source.
+            for (key in keys) memory.get(key)?.let { result[key] = Snapshot(it, Origin.MEMORY) }
+            return result
+        }
         // Epoch snapshot per memory-miss key, captured before the batched read like load() does.
-        val epochs = if (store == null) null else LinkedHashMap<K, Pair<Long, Long>>()
+        val epochs = LinkedHashMap<K, Pair<Long, Long>>()
         for (key in keys) {
             val cached = memory.get(key)
-            when {
-                cached != null -> result[key] = Snapshot(cached, Origin.MEMORY)
-                store != null -> epochs!![key] = epochOf(key)
+            if (cached != null) {
+                result[key] = Snapshot(cached, Origin.MEMORY)
+            } else {
+                epochs[key] = epochOf(key)
             }
         }
-        if (store == null || epochs!!.isEmpty()) return result
+        if (epochs.isEmpty()) return result
         val persisted = store.readAll(epochs.keys)
         if (persisted.isEmpty()) return result
         commitGuard.withLock {
