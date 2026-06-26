@@ -225,12 +225,17 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * would (memory and persistence cleared, any in-flight fetch fenced off, negative-cache
      * record cleared), and its observers see the deletion the same way, in one fenced commit.
      *
-     * [predicate] is tested against the keys this store currently tracks in the process —
-     * resident memory entries, active fetch-capable streams, in-flight fetches, and negative-cache
-     * and write-epoch records — and runs outside the commit lock, so it must not call back into the
-     * store. A [SourceOfTruth] cannot enumerate its keys, so a key tracked in none of those — a
-     * persisted entry evicted from memory and never re-touched, or one never loaded this run — is
-     * out of reach; use [invalidateAll] for a full wipe regardless of what is currently loaded.
+     * [predicate] runs outside the commit lock, so it must not call back into the store, and must
+     * be a pure, side-effect-free key test: on an enumerable store it may be evaluated more than
+     * once for the same key (once over in-process keys, once during store enumeration). It is
+     * tested against the keys this store currently tracks in the process — resident memory
+     * entries, active fetch-capable streams, in-flight fetches, and negative-cache and write-epoch
+     * records — and, when the configured [SourceOfTruth] supports key enumeration
+     * ([SourceOfTruth.keys]), against every persisted key too, so the reach is disk-wide. A store
+     * that cannot enumerate (the default, including `aquifer-persistence-file`) limits the reach to
+     * those in-process keys: a persisted entry evicted from memory and never re-touched, or one
+     * never loaded this run, is then out of reach — use [invalidateAll] for a full wipe regardless
+     * of what is currently loaded or what the store can enumerate.
      */
     public suspend fun invalidateWhere(predicate: (K) -> Boolean)
 

@@ -730,19 +730,28 @@ internal class RealAquifer<K : Any, V : Any>(
 
     override suspend fun invalidateWhere(predicate: (K) -> Boolean) {
         checkOpen()
-        // Candidate keys = everything this process currently tracks: resident memory entries,
-        // active fetch-capable streams, in-flight fetches, and negative-cache and write-epoch
-        // records. A SourceOfTruth can't enumerate its keys, so a key in none of those — a
-        // persisted entry evicted from memory and never re-touched, or one never loaded this
-        // run — is out of reach (use invalidateAll for that). The predicate runs here, never
-        // under commitGuard, so user code can't stall or re-enter the store while it's held.
-        val matched = buildSet {
+        // In-process candidate keys = everything this process currently tracks: resident memory
+        // entries, active fetch-capable streams, in-flight fetches, and negative-cache and
+        // write-epoch records. The predicate runs here, never under commitGuard, so user code
+        // can't stall or re-enter the store while it's held.
+        val inProcess = buildSet {
             addAll(memory.keys())
             addAll(activeKeys.keys)
             addAll(inFlight.keys)
             addAll(negative.keys)
             addAll(keyEpochs.keys)
-        }.filter(predicate)
+        }.filterTo(LinkedHashSet(), predicate)
+        // A store that can enumerate makes the predicate disk-wide: it also reaches persisted keys
+        // this process never tracked (evicted from memory and never re-touched, or never loaded
+        // this run). A store that can't returns null and the reach stays in-process only — for it,
+        // such a key is out of reach (use invalidateAll). Enumeration is I/O and runs the predicate
+        // too, so it stays outside commitGuard like the in-process filter, and every matched key is
+        // fenced below — including disk-only ones, or a read already in flight for one could
+        // hydrate the stale value back after the delete. (Fencing a disk-only key adds a keyEpochs
+        // entry held until invalidateAll, so a disk-wide sweep can grow that map by the matched-key
+        // count — bounding it travels with the rest of the epoch/negative-cache growth.)
+        val persisted = persistence?.keysWhere(predicate)
+        val matched = if (persisted == null) inProcess else inProcess.apply { addAll(persisted) }
         if (matched.isEmpty()) return
         // One fenced commit for the batch, mirroring invalidate per key. Delete persistence for
         // every matched key first, like putAll: a delete failure propagates before any in-memory

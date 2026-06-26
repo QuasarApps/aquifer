@@ -7,6 +7,18 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — key-enumeration capability
+
+- `SourceOfTruth` gains optional `keys()` / `keysWhere(predicate)`, returning the stored keys (or
+  the matching subset) or `null` when the store cannot enumerate — the default, so existing stores
+  are unaffected. When a store can enumerate, `Aquifer.invalidateWhere` becomes **disk-wide**: its
+  predicate reaches every persisted key, not just those tracked in memory this run. A non-enumerable
+  store keeps today's in-process-only reach. Each matched key is fenced exactly as `invalidate`, so
+  a read already in flight can't resurrect a deleted entry. The `aquifer-persistence-file` store
+  opts out by design — its filenames are a one-way SHA-256 of the key. This shapes the queryable
+  persistence adapters (SQLDelight/DataStore), whose whole point is a correct disk-wide
+  `invalidateWhere`.
+
 ### Added — bulk `SourceOfTruth` batching
 
 - `SourceOfTruth` gains optional `readAll(keys)`, `writeAll(entries)`, and `deleteMany(keys)`

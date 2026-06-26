@@ -317,6 +317,16 @@ class JsonFileSourceOfTruthTest {
     }
 
     @Test
+    fun `the file store opts out of key enumeration`() = runTest {
+        val store = store()
+        store.write("a", PersistedEntry(User("a", "A", 1), 1))
+
+        // One-way SHA-256 filenames can't be reversed to keys, so the store keeps the null default.
+        assertNull(store.keys(), "the JSON file store cannot enumerate its keys")
+        assertNull(store.keysWhere { true })
+    }
+
+    @Test
     fun `filesystem-hostile keys are safe`() = runTest {
         val store = store()
         val hostile = "../../etc/passwd: CON?<>|*\u0000 \n 🦆"

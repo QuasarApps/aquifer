@@ -23,6 +23,10 @@ package io.github.quasarapps.aquifer
  *   iteration order, so they inherit those methods' contract and are not atomic unless an override
  *   makes them so. Override them when the backend can do the batch in one query/transaction or
  *   amortize per-call bookkeeping; the default keeps existing implementations source-compatible.
+ * - [keys]/[keysWhere] are an **opt-in** enumeration seam: both default to `null`, meaning the
+ *   store cannot enumerate, so existing stores opt out. An enumerable store overrides them and
+ *   returns its key set — empty when it holds no keys, which is **distinct** from `null`. This is
+ *   what lets [Aquifer.invalidateWhere] reach persisted keys disk-wide.
  *
  * See `aquifer-persistence-file` for a ready-made JSON-files implementation.
  */
@@ -78,6 +82,31 @@ public interface SourceOfTruth<K : Any, V : Any> {
     public suspend fun deleteMany(keys: Collection<K>) {
         for (key in keys) delete(key)
     }
+
+    /**
+     * Every key with a stored entry, or `null` when this store cannot enumerate its keys — the
+     * **default**, so existing stores opt out and are unaffected. A queryable backend (a SQL
+     * table, a DataStore) overrides this; the `aquifer-persistence-file` store cannot, because its
+     * filenames are a one-way SHA-256 of the key, so it keeps the `null` default. An
+     * enumerable-but-empty store returns an empty set — **distinct** from `null` (`null` means
+     * "enumeration unsupported", not "no keys"). [Aquifer.invalidateWhere] calls this to reach
+     * persisted keys no longer tracked in memory, making its predicate disk-wide rather than
+     * in-process-only. A failure thrown here propagates to that caller. May be invoked
+     * concurrently with any other method.
+     */
+    public suspend fun keys(): Set<K>? = null
+
+    /**
+     * The stored keys satisfying [predicate], or `null` when this store cannot enumerate — the
+     * **default** delegates to [keys] and filters in iteration order, so overriding [keys] alone
+     * is enough. Override this directly only when the backend can evaluate the selection more
+     * cheaply than listing every key; note [predicate] is an arbitrary Kotlin function that most
+     * backends cannot push down, so enumerate-then-filter is the realistic cost. Inherits [keys]'s
+     * `null`-means-unsupported contract and propagates a failure to the caller. May be invoked
+     * concurrently with any other method.
+     */
+    public suspend fun keysWhere(predicate: (K) -> Boolean): Set<K>? =
+        keys()?.filterTo(LinkedHashSet(), predicate)
 }
 
 /**

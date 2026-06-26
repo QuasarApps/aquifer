@@ -246,7 +246,9 @@ use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight
 DataStore — four suspend functions (`read`/`write`/`delete`/`deleteAll`), plus optional
 `readAll`/`writeAll`/`deleteMany` to let `getAll`/`streamMany`/`prefetchAll`/`putAll`/`invalidateWhere` batch
 in one query or transaction (they default to the per-key loop, so overriding them is purely an
-optimization).
+optimization). An enumerable backend may also override `keys()` / `keysWhere(...)`, so a disk-wide
+`invalidateWhere` reaches every persisted key — not just those tracked in memory — while the file
+store opts out (its SHA-256 filenames are one-way).
 
 Adding a field to your model is safe by default (unknown keys are ignored). For a *breaking*
 change — a removed or retyped field — stamp writes with a `schemaVersion` and supply a

@@ -153,18 +153,19 @@ whole point (native batched transactions, a disk-wide `invalidateWhere`) is inex
 through today's single-key `SourceOfTruth`, so building the adapters first would either hardcode
 N-round-trip behavior or force a contract break mid-milestone.
 
-- [ ] **Bulk `SourceOfTruth` capability** — optional `readAll(keys)` / `writeAll(entries)` /
+- [x] **Bulk `SourceOfTruth` capability** (shipped — #53/#54/#55) — optional `readAll(keys)` / `writeAll(entries)` /
   `deleteMany(keys)` on the SPI, defaulting to the current per-key loop. Today `getAll`,
   `putAll`, and `invalidateWhere` do N storage round-trips (per-key `read`/`write`/`delete`),
   and a queryable backend cannot express its native batched transaction or `IN` query through
   the four single-key methods. Default implementations keep the JSON file store and existing
   custom stores source-compatible, and make the already-shipped batch paths batch at the
   storage layer too. **Prerequisite for the adapters below.** *(M)*
-- [ ] **Key-enumeration capability** — an opt-in `keys()` / `keysWhere(...)` seam so a queryable
-  store can back a *disk-wide* `invalidateWhere` instead of today's in-process-keys-only
-  predicate. The JSON file store opts out by design: its filenames are one-way SHA-256 of the
-  key, so enumeration would demand a separate key→hash manifest with its own crash-consistency
-  story — exactly what the LRU index deliberately avoids. **Shapes the adapters below.** *(L)*
+- [x] **Key-enumeration capability** (shipped) — an opt-in `keys()` / `keysWhere(...)` seam so a
+  queryable store backs a *disk-wide* `invalidateWhere` instead of today's in-process-keys-only
+  predicate. Default returns `null` (opt out): the JSON file store opts out by design, as its
+  filenames are one-way SHA-256 of the key, so enumeration would demand a separate key→hash
+  manifest with its own crash-consistency story — exactly what the LRU index deliberately avoids.
+  **Shapes the adapters below.** *(L)*
 - [ ] **Proto DataStore adapter** (`aquifer-persistence-datastore`) — the modern AndroidX
   default; builds on the bulk + enumeration capabilities above. *(M)*
 - [ ] **SQLDelight adapter** — queryable persistence (its enumerability backs a correct
