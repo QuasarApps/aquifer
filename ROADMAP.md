@@ -168,8 +168,10 @@ N-round-trip behavior or force a contract break mid-milestone.
   **Shapes the adapters below.** *(L)*
 - [ ] **Proto DataStore adapter** (`aquifer-persistence-datastore`) — the modern AndroidX
   default; builds on the bulk + enumeration capabilities above. *(M)*
-- [ ] **SQLDelight adapter** — queryable persistence (its enumerability backs a correct
-  disk-wide `invalidateWhere`) and the natural stepping stone to multiplatform. *(M)*
+- [x] **SQLDelight adapter** (shipped) — `aquifer-persistence-sqldelight`: queryable persistence
+  whose enumerability backs a correct disk-wide `invalidateWhere`, and the natural stepping stone
+  to multiplatform. Values as JSON, keys via a bidirectional codec; bulk via `IN`-clause +
+  transaction; generated DB classes kept out of the locked public API. *(M)*
 - [x] **Encryption hook** — shipped as a `cipher: ValueCipher?` on `JsonFileSourceOfTruth`: a
   two-method `encrypt`/`decrypt` seam applied to each entry's serialized bytes, depending on
   nothing beyond the JDK so Google Tink's `Aead` (Android Keystore) plugs in through a thin

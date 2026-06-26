@@ -31,6 +31,7 @@ rootProject.name = "aquifer"
 include(":aquifer-core")
 include(":aquifer-test")
 include(":aquifer-persistence-file")
+include(":aquifer-persistence-sqldelight")
 include(":aquifer-android")
 include(":aquifer-compose")
 include(":aquifer-okhttp")

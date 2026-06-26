@@ -1,0 +1,29 @@
+CREATE TABLE entry (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL,
+    writtenAtMillis INTEGER NOT NULL,
+    validator TEXT,
+    serverFreshForMillis INTEGER
+);
+
+selectByKey:
+SELECT * FROM entry WHERE key = ?;
+
+selectByKeys:
+SELECT * FROM entry WHERE key IN ?;
+
+selectAllKeys:
+SELECT key FROM entry;
+
+upsert:
+INSERT OR REPLACE INTO entry(key, value, writtenAtMillis, validator, serverFreshForMillis)
+VALUES (?, ?, ?, ?, ?);
+
+deleteByKey:
+DELETE FROM entry WHERE key = ?;
+
+deleteByKeys:
+DELETE FROM entry WHERE key IN ?;
+
+deleteAll:
+DELETE FROM entry;

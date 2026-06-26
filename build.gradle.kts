@@ -54,6 +54,7 @@ dependencies {
     dokka(project(":aquifer-core"))
     dokka(project(":aquifer-test"))
     dokka(project(":aquifer-persistence-file"))
+    dokka(project(":aquifer-persistence-sqldelight"))
     dokka(project(":aquifer-android"))
     dokka(project(":aquifer-compose"))
     dokka(project(":aquifer-okhttp"))
@@ -67,4 +68,7 @@ dokka {
 // After an intentional API change, regenerate with: ./gradlew apiDump
 apiValidation {
     ignoredProjects += listOf("sample")
+    // The SQLDelight-generated database classes are an implementation detail regenerated from the
+    // .sq schema, not a hand-authored public contract, so they are excluded from the locked API.
+    ignoredPackages += listOf("io.github.quasarapps.aquifer.persistence.sqldelight.db")
 }

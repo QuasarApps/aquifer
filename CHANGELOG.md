@@ -7,6 +7,19 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — SQLDelight persistence adapter
+
+- New `aquifer-persistence-sqldelight` module: `SqlDelightSourceOfTruth`, a queryable
+  `SourceOfTruth` over a SQLDelight/SQLite database. Values are stored as JSON
+  (`kotlinx.serialization`); keys via a bidirectional codec so the store is **enumerable**. It
+  implements the full bulk SPI (`readAll`/`deleteMany` as a single `IN`-clause statement,
+  `writeAll` as one transaction; bulk `IN`-clauses chunk under SQLite's bound-variable cap) and
+  `keys()`/`keysWhere()`, so `Aquifer.invalidateWhere` is disk-wide. Every operation is serialized
+  onto one connection, so the store is safe under the concurrent calls the `SourceOfTruth` contract
+  allows whatever driver you supply. The caller owns the schema lifecycle via the exposed `Schema`;
+  the generated database classes are an internal implementation detail (excluded from the locked
+  public API). Verified on the JVM SQLite driver, including file-backed concurrency and reopen.
+
 ### Added — key-enumeration capability
 
 - `SourceOfTruth` gains optional `keys()` / `keysWhere(predicate)`, returning the stored keys (or

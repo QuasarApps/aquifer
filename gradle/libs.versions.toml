@@ -15,6 +15,7 @@ junit4 = "4.13.2"
 compose-runtime = "1.8.2"
 molecule = "2.2.0"
 detekt = "1.23.8"
+sqldelight = "2.0.2"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
@@ -38,6 +39,8 @@ molecule-runtime = { module = "app.cash.molecule:molecule-runtime", version.ref 
 detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidx-test-core" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
@@ -49,3 +52,4 @@ binary-compatibility-validator = { id = "org.jetbrains.kotlinx.binary-compatibil
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 dokka = { id = "org.jetbrains.dokka", version = "2.2.0" }
 maven-publish = { id = "com.vanniktech.maven.publish", version = "0.37.0" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

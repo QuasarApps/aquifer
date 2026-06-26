@@ -43,6 +43,7 @@ if (state.isLoading) RefreshIndicator()
 >     implementation("io.github.quasarapps:aquifer-compose:0.1.0")          // Compose state collection
 >     implementation("io.github.quasarapps:aquifer-android:0.1.0")          // reconnect/foreground triggers
 >     implementation("io.github.quasarapps:aquifer-persistence-file:0.1.0") // disk persistence
+>     implementation("io.github.quasarapps:aquifer-persistence-sqldelight:0.1.0") // queryable persistence
 >     implementation("io.github.quasarapps:aquifer-okhttp:0.1.0")            // ETag/304 revalidation
 > }
 > ```
@@ -242,8 +243,9 @@ val articles = aquifer<ArticleId, Article> {
 writes, SHA-256 file naming for arbitrary keys, and self-healing reads that treat corrupt
 files as absent. The store is unbounded by default; `maxEntries`/`maxBytes` cap it with
 least-recently-used eviction, and temp files orphaned by a crash are cleaned up on first
-use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight, or
-DataStore — four suspend functions (`read`/`write`/`delete`/`deleteAll`), plus optional
+use. `aquifer-persistence-sqldelight` adds a queryable, enumerable `SourceOfTruth` on SQLDelight,
+whose `keys()` backs a disk-wide `invalidateWhere`. Or implement `SourceOfTruth` yourself to back
+Aquifer with Room or DataStore — four suspend functions (`read`/`write`/`delete`/`deleteAll`), plus optional
 `readAll`/`writeAll`/`deleteMany` to let `getAll`/`streamMany`/`prefetchAll`/`putAll`/`invalidateWhere` batch
 in one query or transaction (they default to the per-key loop, so overriding them is purely an
 optimization). An enumerable backend may also override `keys()` / `keysWhere(...)`, so a disk-wide
@@ -509,7 +511,8 @@ review-driven hardening rounds. What's next, in order:
 2. **Network efficiency** — conditional fetching (ETag/304), negative caching, prefetch,
    batched fetching (0.2 — Compose, detekt, per-call freshness, the bounded disk store, and
    `DataState.Empty` — has fully shipped).
-3. **Persistence expansion** — DataStore and SQLDelight adapters, encryption hook.
+3. **Persistence expansion** — the bulk + enumeration SPI and the SQLDelight adapter (queryable,
+   enumerable) have shipped; the DataStore adapter is next.
 
 The full plan through 1.0 and beyond — persistence adapters, Lincheck-verified concurrency,
 KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).
@@ -522,6 +525,7 @@ KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).
 | `aquifer-compose` | Jetpack Compose integration: `collectAsState(key)`, `rememberStream`, `previewAquifer` (molecule-tested). |
 | `aquifer-android` | Android library: `revalidateOnReconnect` / `revalidateOnAppForeground` triggers (Robolectric-tested). |
 | `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
+| `aquifer-persistence-sqldelight` | SQLDelight `SourceOfTruth`: queryable, batched (`IN`-clause + transactions), and enumerable (disk-wide `invalidateWhere`). |
 | `aquifer-okhttp` | OkHttp conditional fetching: automatic `ETag`/`Last-Modified` revalidation, 304 → `NotModified`. |
 | `sample` | Runnable CLI walkthrough of every feature (`./gradlew :sample:run`). |
 
