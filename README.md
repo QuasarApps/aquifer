@@ -244,7 +244,7 @@ files as absent. The store is unbounded by default; `maxEntries`/`maxBytes` cap 
 least-recently-used eviction, and temp files orphaned by a crash are cleaned up on first
 use. Or implement `SourceOfTruth` yourself to back Aquifer with Room, SQLDelight, or
 DataStore — four suspend functions (`read`/`write`/`delete`/`deleteAll`), plus optional
-`readAll`/`writeAll`/`deleteMany` to let `getAll`/`streamMany`/`putAll`/`invalidateWhere` batch
+`readAll`/`writeAll`/`deleteMany` to let `getAll`/`streamMany`/`prefetchAll`/`putAll`/`invalidateWhere` batch
 in one query or transaction (they default to the per-key loop, so overriding them is purely an
 optimization).
 

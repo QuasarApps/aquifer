@@ -291,6 +291,24 @@ class JsonFileSourceOfTruthTest {
         assertFalse(fileA.exists(), "the corrupt file is healed away")
     }
 
+    @Test
+    fun `readAll on a bounded store bumps recency without evicting or writing`() = runTest {
+        val store = JsonFileSourceOfTruth<String, User>(dir.resolve("users"), User.serializer(), maxEntries = 2)
+        store.write("a", PersistedEntry(User("a", "A", 1), 1))
+        store.write("b", PersistedEntry(User("b", "B", 2), 2)) // recency: a (older), b (newer)
+
+        // A batched read of "a" marks it most-recently-used, exactly as read("a") would, and must
+        // not itself write or evict — readAll stays a pure read on a bounded store.
+        assertEquals(User("a", "A", 1), store.readAll(listOf("a"))["a"]?.value)
+        assertEquals(2, dir.resolve("users").listDirectoryEntries().size, "readAll neither writes nor evicts")
+
+        store.write("c", PersistedEntry(User("c", "C", 3), 3)) // over the cap: evicts the now-LRU
+
+        assertEquals("A", store.read("a")?.value?.name, "the batched read protected \"a\" from eviction")
+        assertNull(store.read("b"), "\"b\" was least-recently-used after the batched read")
+        assertEquals("C", store.read("c")?.value?.name)
+    }
+
     /** SHA-256 file path for a key, mirroring the store's naming, to plant a corrupt file. */
     private fun fileOf(key: String): Path {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(key.encodeToByteArray())

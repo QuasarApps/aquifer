@@ -42,8 +42,9 @@ public interface SourceOfTruth<K : Any, V : Any> {
 
     /**
      * Returns the persisted entries for every key in [keys] that has one — the bulk equivalent of
-     * [read], used by the multi-key read paths ([Aquifer.getAll]/[Aquifer.streamMany]). The default
-     * reads each key via [read] in iteration order; override it when the backend can fetch a batch
+     * [read], used by the multi-key read paths ([Aquifer.getAll], [Aquifer.streamMany],
+     * [Aquifer.prefetchAll]) and the conditional-batch validator gather. The default reads each
+     * key via [read] in iteration order; override it when the backend can fetch a batch
      * in one query (e.g. a SQL `IN`). Keys with no stored entry — or an unreadable one — are omitted
      * from the result, exactly as [read] returns `null` for them. May be invoked concurrently with
      * any other method.
