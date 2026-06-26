@@ -252,6 +252,53 @@ class JsonFileSourceOfTruthTest {
     }
 
     @Test
+    fun `readAll returns every stored entry and omits unknown keys`() = runTest {
+        val store = store()
+        store.write("a", PersistedEntry(User("a", "A", 1), 1))
+        store.write("b", PersistedEntry(User("b", "B", 2), 2))
+
+        val read = store.readAll(listOf("a", "b", "missing"))
+
+        assertEquals(
+            mapOf(
+                "a" to PersistedEntry(User("a", "A", 1), 1),
+                "b" to PersistedEntry(User("b", "B", 2), 2),
+            ),
+            read,
+        )
+    }
+
+    @Test
+    fun `readAll on an empty collection is empty and touches nothing`() = runTest {
+        val empty = store().readAll(emptyList())
+
+        assertTrue(empty.isEmpty())
+        assertFalse(dir.resolve("users").exists(), "an empty batch must not even create the directory")
+    }
+
+    @Test
+    fun `readAll heals a corrupt entry and omits it, returning the rest`() = runTest {
+        val store = store()
+        store.write("a", PersistedEntry(User("a", "A", 1), 1))
+        store.write("b", PersistedEntry(User("b", "B", 2), 2))
+        val fileA = fileOf("a")
+        fileA.writeText("{ not json")
+
+        val read = store.readAll(listOf("a", "b"))
+
+        assertNull(read["a"], "corrupt entry is omitted, like read() returning null")
+        assertEquals(User("b", "B", 2), read["b"]?.value)
+        assertFalse(fileA.exists(), "the corrupt file is healed away")
+    }
+
+    /** SHA-256 file path for a key, mirroring the store's naming, to plant a corrupt file. */
+    private fun fileOf(key: String): Path {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(key.encodeToByteArray())
+        val name = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return dir.resolve("users").resolve("$name.json")
+    }
+
+    @Test
     fun `filesystem-hostile keys are safe`() = runTest {
         val store = store()
         val hostile = "../../etc/passwd: CON?<>|*\u0000 \n 🦆"

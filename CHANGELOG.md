@@ -9,15 +9,19 @@ versions may contain breaking changes.
 
 ### Added — bulk `SourceOfTruth` batching
 
-- `SourceOfTruth` gains optional `writeAll(entries)` and `deleteMany(keys)` methods that default
-  to looping the per-key `write`/`delete`, so existing custom stores keep working unchanged. The
-  engine now routes `putAll` through `writeAll` and `invalidateWhere` through `deleteMany`, so a
-  store that overrides them does the batch in a single round-trip instead of N.
-  `JsonFileSourceOfTruth` overrides both: `writeAll` stages every entry to a fsynced temp file
-  first and then commits all the renames under one lock acquisition (recording and evicting per
-  committed entry, so the on-disk and byte-budget outcome matches the per-key path), and
-  `deleteMany` deletes the whole set under one lock acquisition. First of the two bulk SPI
-  capabilities the queryable persistence adapters need (a `readAll` read-side counterpart follows).
+- `SourceOfTruth` gains optional `readAll(keys)`, `writeAll(entries)`, and `deleteMany(keys)`
+  methods that default to looping the per-key `read`/`write`/`delete`, so existing custom stores
+  keep working unchanged. The engine now routes `getAll`/`streamMany`/`prefetchAll` reads through
+  `readAll`, `putAll` through `writeAll`, and `invalidateWhere` through `deleteMany`, so a store
+  that overrides them does the batch in a single round-trip instead of N — letting a queryable
+  backend serve a multi-key read with one `IN` query. Batched reads keep the same epoch fencing as
+  the single-key path, so a `put`/`invalidate` racing the read never resurrects a deleted entry.
+  `JsonFileSourceOfTruth` overrides all three: `readAll` reads the batch under one I/O dispatch;
+  `writeAll` stages every entry to a fsynced temp file first and then commits all the renames under
+  one lock acquisition (recording and evicting per committed entry, so the on-disk and byte-budget
+  outcome matches the per-key path); and `deleteMany` deletes the whole set under one lock
+  acquisition. Together with #53's write/delete batching, these complete the two bulk SPI
+  capabilities the queryable persistence adapters need.
 
 ### Added — encryption at rest (JsonFileSourceOfTruth)
 
