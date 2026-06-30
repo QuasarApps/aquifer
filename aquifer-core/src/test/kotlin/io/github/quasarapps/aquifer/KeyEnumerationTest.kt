@@ -1,5 +1,6 @@
 package io.github.quasarapps.aquifer
 
+import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -9,6 +10,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration
 
 /**
  * The opt-in key-enumeration capability: a [SourceOfTruth] that overrides [SourceOfTruth.keys]
@@ -142,6 +144,50 @@ class KeyEnumerationTest {
         // The read resumes with the stale snapshot but is fenced: it never hydrates, so it misses.
         assertEquals(emptyMap(), reading.await())
         assertFalse("cold" in store.snapshot(), "the cold key was not resurrected into memory")
+    }
+
+    @Test
+    fun `invalidateWhere via disk enumeration fires an Invalidated event to a watching stream`() = runTest {
+        // Task #11: verify the Invalidated event actually reaches a CacheOnly stream when the
+        // key is matched via disk enumeration (not just in-process tracking).
+        val disk = EnumerableSourceOfTruth<String, Int>()
+        disk.storage["cold"] = PersistedEntry(1, writtenAtMillis = 0)
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            persistence(disk)
+            fetcher { error("CacheOnly never fetches") }
+            freshness { timeToLive = Duration.INFINITE }
+        }
+
+        store.stream("cold", Freshness.CacheOnly).test {
+            assertEquals(DataState.Content(1, Origin.PERSISTENCE, isStale = false), awaitItem())
+            store.invalidateWhere { it == "cold" }
+            assertEquals(DataState.Empty, awaitItem())
+        }
+    }
+
+    @Test
+    fun `invalidateWhere emits exactly one Invalidated event when a key is both resident and enumerated`() = runTest {
+        // Task #12: a key present in both inProcess (memory/keyEpochs) and in the enumerable
+        // store's keysWhere result must be deduplicated — the LinkedHashSet.apply { addAll(persisted) }
+        // path — so exactly one fence and one Invalidated event are emitted, not two.
+        val disk = EnumerableSourceOfTruth<String, Int>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            persistence(disk)
+            fetcher { error("CacheOnly never fetches") }
+            freshness { timeToLive = Duration.INFINITE }
+        }
+        store.put("warm", 99) // resident in memory AND written through to disk
+
+        store.stream("warm", Freshness.CacheOnly).test {
+            assertEquals(DataState.Content(99, Origin.MEMORY, isStale = false), awaitItem())
+            store.invalidateWhere { it == "warm" }
+            assertEquals(DataState.Empty, awaitItem())
+            settle()
+            expectNoEvents() // confirms exactly one event, not two
+        }
+        assertNull(disk.storage["warm"])
     }
 
     @Test
