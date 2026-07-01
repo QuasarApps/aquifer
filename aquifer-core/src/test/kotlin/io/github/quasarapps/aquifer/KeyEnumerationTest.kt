@@ -29,11 +29,18 @@ class KeyEnumerationTest {
         var keysCalls = 0
 
         // Every delete this store receives, in order. invalidateWhere drives deletion through the
-        // default deleteMany (not overridden here), which loops delete() once per key in its
-        // deduplicated `matched` set — the same set that drives the per-key Invalidated broadcast
-        // 1:1 (RealAquifer.invalidateWhere). So a key's occurrence count here is a non-stream proxy
-        // for how many Invalidated events it produced, which distinctUntilChanged() would otherwise
-        // hide on a watching stream.
+        // default deleteMany, which loops delete() once per key in its deduplicated `matched` set —
+        // the same set that drives the per-key Invalidated broadcast 1:1 (RealAquifer.invalidateWhere).
+        // So a key's occurrence count here is a non-stream proxy for how many Invalidated events it
+        // produced, which distinctUntilChanged() would otherwise hide on a watching stream.
+        //
+        // This is a *structural* equivalence (both loops walk `matched`), not a pinned invariant: it
+        // would miss a stray emit rooted outside `matched`. The only fully-direct guard would assert
+        // on the raw Invalidated events, which needs the onInvalidated callback this suite defers.
+        //
+        // DO NOT override deleteMany on this double. The real stores batch it, but overriding it here
+        // would stop routing through delete(), leaving deletedKeys silently empty while emits stay
+        // correct — the guard would quietly stop measuring.
         val deletedKeys = mutableListOf<K>()
 
         override suspend fun read(key: K): PersistedEntry<V>? {
@@ -158,9 +165,10 @@ class KeyEnumerationTest {
     @Test
     fun `invalidateWhere via disk enumeration fires an Invalidated event to a watching stream`() = runTest {
         // Verify the Invalidated event actually reaches a CacheOnly stream when the key is matched.
-        // Watching the stream hydrates "cold" into memory, so the drop could match via in-process
-        // tracking alone; the keysCalls assertion proves the disk was also enumerated (the
-        // disk-wide path ran), so this exercises enumeration and not just the resident-key path.
+        // Watching the stream hydrates "cold" into memory, so this drop is in fact driven by the
+        // in-process path; keysCalls == 1 proves invalidateWhere still *invokes* disk enumeration,
+        // not that enumeration caused this drop. The causal "enumeration reaches an untracked key"
+        // proof lives in the sibling tests above, which never stream the key.
         val disk = EnumerableSourceOfTruth<String, Int>()
         disk.storage["cold"] = PersistedEntry(1, writtenAtMillis = 0)
         val store = aquifer<String, Int> {
@@ -175,7 +183,7 @@ class KeyEnumerationTest {
             store.invalidateWhere { it == "cold" }
             assertEquals(DataState.Empty, awaitItem())
         }
-        assertEquals(1, disk.keysCalls, "invalidateWhere enumerated the store (the disk-wide path ran)")
+        assertEquals(1, disk.keysCalls, "invalidateWhere still invokes disk enumeration")
     }
 
     @Test
