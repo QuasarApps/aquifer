@@ -98,14 +98,14 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * - **O(N) live buffers** — each member opens its own [stream] with an unbounded bus-drain
      *   buffer. A large member set holds N buffers in memory simultaneously and drains each on
      *   every store event.
-     * - **Memory-cache interaction** — when N > `memoryCache.maxEntries` (default 256), each
+     * - **Memory-cache interaction** — when N > `memoryCache.maxEntries` (default 512), each
      *   new entry evicts an earlier one from the LRU. Writes and fetches are still observed via
      *   the event bus (not memory), but a cache miss for an evicted key causes an extra
      *   persistence read or re-fetch on the next access. Pair with a persistence store or raise
      *   `maxEntries` if the member set consistently exceeds the cache size.
      *
-     * For paginated or scrolling lists, use AndroidX Paging 3 (`aquifer-paging`, planned) rather
-     * than passing page-sized key windows to `streamMany`.
+     * For paginated or scrolling lists, use AndroidX Paging 3 (`aquifer-paging`, planned; not yet
+     * available) rather than passing page-sized key windows to `streamMany`.
      *
      * @param freshness strategy for each member key; defaults to
      *   [Freshness.StaleWhileRevalidate].

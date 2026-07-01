@@ -7,6 +7,7 @@ import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -187,6 +188,7 @@ class StreamManyTest {
         store.streamMany(setOf("k1", "k2", "k3")).test {
             // k1 is evicted from the 2-slot LRU as k2 and k3 fill it.
             awaitAllContent()
+            assertFalse("k1" in store.snapshot(), "k1 evicted from the 2-slot LRU before the put")
 
             store.put("k1", 999) // write to the evicted key
             var latest = awaitItem()
