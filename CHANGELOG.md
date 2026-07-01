@@ -7,6 +7,17 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — multi-key Compose binding
+
+- `aquifer-compose` gains `collectAsState(keys)` and `rememberStreamMany(keys)`, the multi-key
+  counterparts to `collectAsState(key)` / `rememberStream`. They bind `Aquifer.streamMany` to one
+  lifecycle-aware `State<Map<K, DataState<V>>>` — a single collector for a whole list or grid screen
+  instead of a per-item collector that restarts as items scroll — with the member keys' initial
+  fetches batched into one call. The stream is remembered per `(aquifer, keys, freshness)` and keyed
+  on the `keys` set **by value**, so a fresh but equal set across recompositions reuses it; before
+  the first emission the state is an empty map. There is no `maxAge` knob, mirroring `streamMany`.
+  `previewAquifer` already backs `streamMany`, so multi-key `@Preview`s work with no extra wiring.
+
 ### Added — SQLDelight persistence adapter
 
 - New `aquifer-persistence-sqldelight` module: `SqlDelightSourceOfTruth`, a queryable

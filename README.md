@@ -187,6 +187,14 @@ val states: Flow<Map<UserId, DataState<User>>> = users.streamMany(visibleIds)  /
 users.prefetchAll(nextPageIds)                                                 // warm the next page, returns instantly
 ```
 
+In Compose, `collectAsState(ids)` is the lifecycle-aware binding for that map — one collector for the
+whole list or grid (not a per-item collector that restarts on scroll), the multi-key twin of
+`collectAsState(key)` (`rememberStreamMany` exposes the raw `Flow`):
+
+```kotlin
+val states: Map<UserId, DataState<User>> by users.collectAsState(visibleIds) // one lifecycle-scoped subscription
+```
+
 Already holding the data — a websocket frame, a paginated payload? `putAll(entries)` is the
 write-side mirror: it seeds many keys in one fenced commit (one update per key), the bulk form of
 `put`.
@@ -522,7 +530,7 @@ KMP, offline mutations — lives in [ROADMAP.md](ROADMAP.md).
 | Module | Description |
 |---|---|
 | `aquifer-core` | The store: public API + engine. Pure Kotlin/JVM, depends only on `kotlinx-coroutines-core`. |
-| `aquifer-compose` | Jetpack Compose integration: `collectAsState(key)`, `rememberStream`, `previewAquifer` (molecule-tested). |
+| `aquifer-compose` | Jetpack Compose integration: `collectAsState(key)` / `collectAsState(keys)`, `rememberStream` / `rememberStreamMany`, `previewAquifer` (molecule-tested). |
 | `aquifer-android` | Android library: `revalidateOnReconnect` / `revalidateOnAppForeground` triggers (Robolectric-tested). |
 | `aquifer-persistence-file` | JSON-files `SourceOfTruth` backed by kotlinx.serialization: atomic writes, self-healing reads. |
 | `aquifer-persistence-sqldelight` | SQLDelight `SourceOfTruth`: queryable, batched (`IN`-clause + transactions), and enumerable (disk-wide `invalidateWhere`). |
