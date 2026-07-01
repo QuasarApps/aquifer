@@ -224,9 +224,10 @@ The engine's guarantees deserve machine-checked evidence.
   rebuilds the whole result `Map` on every per-key change: O(N) work per emission and O(N) live
   buffers, and a member set larger than `memoryCache.maxEntries` (default 512) thrashes the LRU.
   Shipped a `### Scale` KDoc section documenting the interaction and that it is *not* a paging
-  replacement (pointing at the planned `aquifer-paging`), plus two characterization tests at 3× the
-  cache cap: every member still resolves in one batch round-trip, and an evicted key's stream still
-  observes writes via the event bus. A soft cap / chunked emission was evaluated and deferred — no
+  replacement (pointing at the planned `aquifer-paging`), plus two characterization tests over member
+  sets larger than the cache cap: at 3× the cap every member still resolves in one batch round-trip,
+  and (3 keys in a 2-slot cache) an evicted key's stream still observes writes via the event bus. A
+  soft cap / chunked emission was evaluated and deferred — no
   logging seam exists, the right threshold is caller-dependent, and docs + characterization let
   callers decide; a cap can follow a concrete request. *(M)*
 - [ ] **Docs-accuracy pass** — fix the inconsistencies the project review surfaced: link the
