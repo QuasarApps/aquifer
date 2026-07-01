@@ -70,12 +70,13 @@ public fun <K : Any, V : Any> Aquifer<K, V>.rememberStream(
  * exactly like the single-key [collectAsState]: **one** collector for the whole set (not one
  * per item), so a list or grid screen holds a single lifecycle-scoped subscription instead of
  * a per-item collector that restarts as items scroll in and out. The member keys' initial
- * fetches are batched into one call, mirroring [Aquifer.streamMany].
+ * fetches are batched into one call, mirroring [Aquifer.streamMany]. Named distinctly from the
+ * single-key [collectAsState] (like [Aquifer.stream]/[Aquifer.streamMany]), not overloaded.
  *
  * ```
  * @Composable
  * fun UsersRow(users: Aquifer<UserId, User>, ids: Set<UserId>) {
- *     val states by users.collectAsState(ids)
+ *     val states by users.collectAsStateMany(ids)
  *
  *     ids.forEach { id ->
  *         when (val state = states[id]) {
@@ -92,14 +93,14 @@ public fun <K : Any, V : Any> Aquifer<K, V>.rememberStream(
  * a fresh collection and a new batched initial fetch. Before the first emission the state is an
  * **empty map**; the first emission carries an entry for every member key — cached `Content`, or
  * `Loading` on a miss that will fetch (a `CacheOnly` miss is `Empty`). Unlike the single-key
- * overload there is no `maxAge` knob — [Aquifer.streamMany] does not take one.
+ * [collectAsState] there is no `maxAge` knob — [Aquifer.streamMany] does not take one.
  *
  * The result is one `State<Map>`: any single key's change recomposes every reader of the whole
  * map (Compose still skips unchanged leaf composables). That is the tradeoff of one combined
  * subscription versus a per-item collector — aimed at bounded lists/grids, not unbounded sets.
  */
 @Composable
-public fun <K : Any, V : Any> Aquifer<K, V>.collectAsState(
+public fun <K : Any, V : Any> Aquifer<K, V>.collectAsStateMany(
     keys: Set<K>,
     freshness: Freshness = Freshness.StaleWhileRevalidate,
     lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current,
@@ -114,7 +115,7 @@ public fun <K : Any, V : Any> Aquifer<K, V>.collectAsState(
 
 /**
  * Returns [Aquifer.streamMany] for [keys], remembered across recompositions keyed on
- * `(aquifer, keys, freshness)` — the building block for the multi-key [collectAsState], exposed
+ * `(aquifer, keys, freshness)` — the building block for [collectAsStateMany], exposed
  * for cases that need the raw [Flow] (custom operators, `produceState`, snapshotting in effects).
  * The multi-key counterpart to [rememberStream]. Keyed on the [keys] set by value, so passing a
  * fresh set with the same contents across recompositions reuses the same stream — but pass an

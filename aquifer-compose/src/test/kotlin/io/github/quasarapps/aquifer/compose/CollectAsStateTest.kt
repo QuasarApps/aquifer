@@ -121,7 +121,7 @@ class CollectAsStateTest {
     }
 
     @Test
-    fun `multi-key collectAsState renders an empty map then the combined content`() = runTest {
+    fun `collectAsStateMany renders an empty map then the combined content`() = runTest {
         val store = aquifer<String, Int> {
             scope(backgroundScope)
             batchFetcher { keys -> keys.associateWith { it.length } }
@@ -129,7 +129,7 @@ class CollectAsStateTest {
         val owner = owner()
 
         moleculeFlow(RecompositionMode.Immediate) {
-            store.collectAsState(setOf("a", "bb"), lifecycleOwner = owner).value
+            store.collectAsStateMany(setOf("a", "bb"), lifecycleOwner = owner).value
         }.test {
             assertEquals(emptyMap<String, DataState<Int>>(), awaitItem()) // initial, before the first emission
             // streamMany's combine emits once every member has a state; skip intermediate Loading maps.

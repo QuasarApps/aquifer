@@ -61,13 +61,14 @@ What every consuming app touches daily; highest user-facing leverage.
   in-memory access-ordered index (exact within a process) seeded from file mtimes across
   restarts — no index file to keep crash-consistent — and an absolute byte cap
   (DiskLruCache-style: an entry exceeding `maxBytes` alone is not retained). *(M)*
-- [x] **Multi-key Compose binding** (shipped) — `collectAsState(keys): State<Map<K, DataState<V>>>`
+- [x] **Multi-key Compose binding** (shipped) — `collectAsStateMany(keys): State<Map<K, DataState<V>>>`
   and `rememberStreamMany`, the Compose counterparts to the shipped `streamMany`/`getAll`: one
   lifecycle-aware collector for a list or grid screen instead of a per-item collector that restarts
-  on scroll. Remembered per `(aquifer, keys, freshness)` and keyed on the `keys` set by value; empty
-  map before the first emission; no `maxAge` knob (mirroring `streamMany`). `previewAquifer` already
-  backs `streamMany`, so multi-key `@Preview`s need no extra wiring. The lighter, in-scope half of
-  multi-key support — distinct from the deferred Paging bridge. *(M)*
+  on scroll. Distinct-named (like `stream`/`streamMany`), remembered per `(aquifer, keys, freshness)`
+  and keyed on the `keys` set by value; empty map before the first emission; no `maxAge` knob
+  (mirroring `streamMany`). `previewAquifer` already backs `streamMany`, so multi-key `@Preview`s
+  need no extra wiring. The lighter, in-scope half of multi-key support — distinct from the deferred
+  Paging bridge. *(M)*
 - [x] **`DataState.Empty` / observable deletion** — designed in RFC #23, shipped as a new
   sealed member emitted only to `CacheOnly` streams (initial miss and observed
   `invalidate`/`invalidateAll`); fetch-capable streams keep signalling through their

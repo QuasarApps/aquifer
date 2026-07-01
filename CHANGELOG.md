@@ -9,8 +9,9 @@ versions may contain breaking changes.
 
 ### Added — multi-key Compose binding
 
-- `aquifer-compose` gains `collectAsState(keys)` and `rememberStreamMany(keys)`, the multi-key
-  counterparts to `collectAsState(key)` / `rememberStream`. They bind `Aquifer.streamMany` to one
+- `aquifer-compose` gains `collectAsStateMany(keys)` and `rememberStreamMany(keys)`, the multi-key
+  counterparts to `collectAsState(key)` / `rememberStream` (distinct-named, like the core
+  `stream`/`streamMany`, rather than overloading). They bind `Aquifer.streamMany` to one
   lifecycle-aware `State<Map<K, DataState<V>>>` — a single collector for a whole list or grid screen
   instead of a per-item collector that restarts as items scroll — with the member keys' initial
   fetches batched into one call. The stream is remembered per `(aquifer, keys, freshness)` and keyed
