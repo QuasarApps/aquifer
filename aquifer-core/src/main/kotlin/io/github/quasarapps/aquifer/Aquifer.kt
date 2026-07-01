@@ -87,6 +87,26 @@ public interface Aquifer<K : Any, V : Any> : AutoCloseable {
      * on a miss that will fetch, `Empty` for a `CacheOnly` miss, or `Failure`. An empty [keys]
      * yields a single empty map. Like [stream], collect it in a scope matching your UI lifecycle.
      *
+     * ### Scale
+     *
+     * `streamMany` is designed for small-to-medium fixed key sets (a detail screen's related
+     * entities, a dashboard's N tiles), **not** as a paging replacement:
+     *
+     * - **O(N) work per emission** — the combined map is rebuilt in full every time *any*
+     *   member key changes state. Ten thousand keys with frequent updates means ten thousand
+     *   map entries rebuilt on every write or fetch completion.
+     * - **O(N) live buffers** — each member opens its own [stream] with an unbounded bus-drain
+     *   buffer. A large member set holds N buffers in memory simultaneously and drains each on
+     *   every store event.
+     * - **Memory-cache interaction** — when N > `memoryCache.maxEntries` (default 512), each
+     *   new entry evicts an earlier one from the LRU. Writes and fetches are still observed via
+     *   the event bus (not memory), but a cache miss for an evicted key causes an extra
+     *   persistence read or re-fetch on the next access. Pair with a persistence store or raise
+     *   `maxEntries` if the member set consistently exceeds the cache size.
+     *
+     * For paginated or scrolling lists, use AndroidX Paging 3 (`aquifer-paging`, planned; not yet
+     * available) rather than passing page-sized key windows to `streamMany`.
+     *
      * @param freshness strategy for each member key; defaults to
      *   [Freshness.StaleWhileRevalidate].
      */

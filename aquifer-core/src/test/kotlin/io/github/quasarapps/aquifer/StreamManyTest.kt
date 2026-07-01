@@ -7,6 +7,8 @@ import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -141,6 +143,61 @@ class StreamManyTest {
         store.close()
 
         assertFailsWith<IllegalStateException> { store.streamMany(setOf("a")) }
+    }
+
+    @Test
+    fun `streamMany resolves all members when count exceeds memoryCache maxEntries`() = runTest {
+        // Characterizes the documented scale ceiling: streamMany opens one stream + one
+        // unbounded bus-drain buffer per member and rebuilds the full map on every per-key
+        // change (O(N) work per emission). When N > maxEntries the LRU evicts earlier keys as
+        // later ones land, but the store still resolves every key — the batch fetcher fills them
+        // all in one round-trip and the event bus delivers each result regardless of memory state.
+        val cacheSize = 8
+        val memberCount = cacheSize * 3 // 3× the memory cap
+        val keys = (1..memberCount).map { "k$it" }.toSet()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            memoryCache { maxEntries = cacheSize }
+            batchFetcher { batch -> batch.associateWith { it.drop(1).toInt() } }
+        }
+
+        store.streamMany(keys).test {
+            val resolved = awaitAllContent()
+            assertEquals(memberCount, resolved.size, "every member has a state")
+            assertTrue(resolved.values.all { it is DataState.Content }, "all resolved to Content")
+            keys.forEach { key ->
+                assertEquals(key.drop(1).toInt(), resolved[key]?.value, "value matches for $key")
+            }
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `streamMany observes a write to a key evicted from the memory cache`() = runTest {
+        // Writes are broadcast on the event bus, not stored in memory alone, so a stream
+        // collector watching a key that was LRU-evicted still sees subsequent puts —
+        // confirming the bus-based delivery, not memory-dependent observation.
+        val disk = InMemorySourceOfTruth<String, Int>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            memoryCache { maxEntries = 2 }
+            persistence(disk)
+            batchFetcher { batch -> batch.associateWith { it.drop(1).toInt() } }
+        }
+
+        store.streamMany(setOf("k1", "k2", "k3")).test {
+            // k1 is evicted from the 2-slot LRU as k2 and k3 fill it.
+            awaitAllContent()
+            assertFalse("k1" in store.snapshot(), "k1 evicted from the 2-slot LRU before the put")
+
+            store.put("k1", 999) // write to the evicted key
+            var latest = awaitItem()
+            while (latest["k1"]?.value != 999) latest = awaitItem()
+            assertEquals(999, latest["k1"]?.value, "evicted key's stream still observes the write")
+            assertEquals(2, latest["k2"]?.value, "sibling key unaffected")
+            assertEquals(3, latest["k3"]?.value, "sibling key unaffected")
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
