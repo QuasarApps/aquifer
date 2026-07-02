@@ -16,6 +16,7 @@ compose-runtime = "1.8.2"
 molecule = "2.2.0"
 detekt = "1.23.8"
 sqldelight = "2.0.2"
+lincheck = "2.39"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
@@ -41,6 +42,7 @@ androidx-test-core = { module = "androidx.test:core", version.ref = "androidx-te
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
 sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+lincheck = { module = "org.jetbrains.kotlinx:lincheck", version.ref = "lincheck" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
