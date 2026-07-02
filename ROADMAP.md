@@ -61,13 +61,14 @@ What every consuming app touches daily; highest user-facing leverage.
   in-memory access-ordered index (exact within a process) seeded from file mtimes across
   restarts — no index file to keep crash-consistent — and an absolute byte cap
   (DiskLruCache-style: an entry exceeding `maxBytes` alone is not retained). *(M)*
-- [ ] **Multi-key Compose binding** — `collectAsState(keys): State<Map<K, DataState<V>>>` and
-  `rememberStreamMany`, the Compose counterparts to the shipped `streamMany`/`getAll`: one
-  lifecycle-aware collector for a list or grid screen instead of a per-item collector that
-  restarts on scroll (or hand-rolling `collectAsStateWithLifecycle` over the raw `Flow`). The
-  engine and `previewAquifer` already implement `streamMany`; only the Compose binding is
-  missing. The lighter, in-scope half of multi-key support — distinct from the deferred Paging
-  bridge. *(M)*
+- [x] **Multi-key Compose binding** (shipped) — `collectAsStateMany(keys): State<Map<K, DataState<V>>>`
+  and `rememberStreamMany`, the Compose counterparts to the shipped `streamMany`/`getAll`: one
+  lifecycle-aware collector for a list or grid screen instead of a per-item collector that restarts
+  on scroll. Distinct-named (like `stream`/`streamMany`), remembered per `(aquifer, keys, freshness)`
+  and keyed on the `keys` set by value; empty map before the first emission; no `maxAge` knob
+  (mirroring `streamMany`). `previewAquifer` already backs `streamMany`, so multi-key `@Preview`s
+  need no extra wiring. The lighter, in-scope half of multi-key support — distinct from the deferred
+  Paging bridge. *(M)*
 - [x] **`DataState.Empty` / observable deletion** — designed in RFC #23, shipped as a new
   sealed member emitted only to `CacheOnly` streams (initial miss and observed
   `invalidate`/`invalidateAll`); fetch-capable streams keep signalling through their
@@ -219,12 +220,17 @@ The engine's guarantees deserve machine-checked evidence.
 - [ ] **Docs site** — `dokkaGenerate` already runs in CI as a compile check; only the GitHub
   Pages deploy step is missing. Publish the aggregated HTML on release for a versioned, browsable
   API reference. *(S)*
-- [ ] **`streamMany` scale ceiling — document, then guard** — `streamMany` opens one
-  bus-collector coroutine (each with an unbounded buffer) per member and rebuilds the whole
-  result `Map` on every per-key change: O(N) work per emission and O(N) live buffers, and a
-  member set larger than `memoryCache.maxEntries` (default 256) thrashes. Document the
-  interaction and that it is *not* a paging replacement, add a characterization test at large
-  member counts, and consider a soft cap or chunked/diff emission. *(M)*
+- [x] **`streamMany` scale ceiling — documented, then characterized** (shipped — #59) —
+  `streamMany` opens one bus-collector coroutine (each with an unbounded buffer) per member and
+  rebuilds the whole result `Map` on every per-key change: O(N) work per emission and O(N) live
+  buffers, and a member set larger than `memoryCache.maxEntries` (default 512) thrashes the LRU.
+  Shipped a `### Scale` KDoc section documenting the interaction and that it is *not* a paging
+  replacement (pointing at the planned `aquifer-paging`), plus two characterization tests over member
+  sets larger than the cache cap: at 3× the cap every member still resolves in one batch round-trip,
+  and (3 keys in a 2-slot cache) an evicted key's stream still observes writes via the event bus. A
+  soft cap / chunked emission was evaluated and deferred — no
+  logging seam exists, the right threshold is caller-dependent, and docs + characterization let
+  callers decide; a cap can follow a concrete request. *(M)*
 - [ ] **Docs-accuracy pass** — fix the inconsistencies the project review surfaced: link the
   cited RFC/issue numbers (#12, #13, #23, #29) to their GitHub items instead of citing bare
   internal numbers; surface `fakeAquifer`'s deliberate divergences (no TTL, no single-flight

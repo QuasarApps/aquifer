@@ -47,4 +47,20 @@ class PreviewAquiferTest {
         assertEquals("Ada", store.fresh("u1"))
         assertFailsWith<CacheMissException> { store.get("missing") }
     }
+
+    @Test
+    fun `streamMany combines seeded content and missing keys into one map`() = runTest {
+        val store = previewAquifer("u1" to "Ada", "u2" to "Bob")
+
+        store.streamMany(setOf("u1", "u2", "missing")).test {
+            assertEquals(
+                mapOf(
+                    "u1" to DataState.Content("Ada", Origin.MEMORY, isStale = false),
+                    "u2" to DataState.Content("Bob", Origin.MEMORY, isStale = false),
+                    "missing" to DataState.Empty, // previews never fetch: absence is an affirmative empty
+                ),
+                awaitItem(),
+            )
+        }
+    }
 }

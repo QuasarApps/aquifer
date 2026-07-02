@@ -119,4 +119,50 @@ class CollectAsStateTest {
             assertEquals(2, seen.size)
         }
     }
+
+    @Test
+    fun `collectAsStateMany renders an empty map then the combined content`() = runTest {
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            batchFetcher { keys -> keys.associateWith { it.length } }
+        }
+        val owner = owner()
+
+        moleculeFlow(RecompositionMode.Immediate) {
+            store.collectAsStateMany(setOf("a", "bb"), lifecycleOwner = owner).value
+        }.test {
+            assertEquals(emptyMap<String, DataState<Int>>(), awaitItem()) // initial, before the first emission
+            // streamMany's combine emits once every member has a state; skip intermediate Loading maps.
+            var latest = awaitItem()
+            while (latest.values.any { it !is DataState.Content }) latest = awaitItem()
+            assertEquals(
+                mapOf(
+                    "a" to DataState.Content(1, Origin.FETCHER, isStale = false),
+                    "bb" to DataState.Content(2, Origin.FETCHER, isStale = false),
+                ),
+                latest,
+            )
+        }
+    }
+
+    @Test
+    fun `rememberStreamMany returns the same stream across recompositions for an equal key set`() = runTest {
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            batchFetcher { keys -> keys.associateWith { it.length } }
+        }
+        val seen = mutableListOf<Flow<Map<String, DataState<Int>>>>()
+        var tick by mutableStateOf(0)
+
+        moleculeFlow(RecompositionMode.Immediate) {
+            seen += store.rememberStreamMany(setOf("a", "bb")) // a fresh but equal set each pass
+            tick
+        }.test {
+            assertEquals(0, awaitItem())
+            tick = 1
+            assertEquals(1, awaitItem())
+            assertSame(seen.first(), seen.last()) // Set value-equality keying reuses the stream
+            assertEquals(2, seen.size)
+        }
+    }
 }

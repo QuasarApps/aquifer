@@ -64,3 +64,66 @@ public fun <K : Any, V : Any> Aquifer<K, V>.rememberStream(
     freshness: Freshness = Freshness.StaleWhileRevalidate,
     maxAge: Duration? = null,
 ): Flow<DataState<V>> = remember(this, key, freshness, maxAge) { stream(key, freshness, maxAge) }
+
+/**
+ * Observes every key in [keys] as one combined Compose [State], collecting lifecycle-aware
+ * exactly like the single-key [collectAsState]: **one** collector for the whole set (not one
+ * per item), so a list or grid screen holds a single lifecycle-scoped subscription instead of
+ * a per-item collector that restarts as items scroll in and out. The member keys' initial
+ * fetches are batched into one call, mirroring [Aquifer.streamMany]. Named distinctly from the
+ * single-key [collectAsState] (like [Aquifer.stream]/[Aquifer.streamMany]), not overloaded.
+ *
+ * ```
+ * @Composable
+ * fun UsersRow(users: Aquifer<UserId, User>, ids: Set<UserId>) {
+ *     val states by users.collectAsStateMany(ids)
+ *
+ *     ids.forEach { id ->
+ *         when (val state = states[id]) {
+ *             is DataState.Content -> UserChip(state.value)
+ *             null -> UserChipPlaceholder()          // not resolved yet (before the first emission)
+ *             else -> UserChipLoading(state)
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * The underlying stream is [remembered][rememberStreamMany] per `(aquifer, keys, freshness)`, so
+ * recompositions don't restart it — but changing the [keys] set (by value) or [freshness] starts
+ * a fresh collection and a new batched initial fetch. Before the first emission the state is an
+ * **empty map**; the first emission carries an entry for every member key — cached `Content`, or
+ * `Loading` on a miss that will fetch (a `CacheOnly` miss is `Empty`). Unlike the single-key
+ * [collectAsState] there is no `maxAge` knob — [Aquifer.streamMany] does not take one.
+ *
+ * The result is one `State<Map>`: any single key's change recomposes every reader of the whole
+ * map (Compose still skips unchanged leaf composables). That is the tradeoff of one combined
+ * subscription versus a per-item collector — aimed at bounded lists/grids, not unbounded sets.
+ */
+@Composable
+public fun <K : Any, V : Any> Aquifer<K, V>.collectAsStateMany(
+    keys: Set<K>,
+    freshness: Freshness = Freshness.StaleWhileRevalidate,
+    lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current,
+    minActiveState: Lifecycle.State = Lifecycle.State.STARTED,
+    context: CoroutineContext = EmptyCoroutineContext,
+): State<Map<K, DataState<V>>> = rememberStreamMany(keys, freshness).collectAsStateWithLifecycle(
+    initialValue = emptyMap<K, DataState<V>>(),
+    lifecycle = lifecycleOwner.lifecycle,
+    minActiveState = minActiveState,
+    context = context,
+)
+
+/**
+ * Returns [Aquifer.streamMany] for [keys], remembered across recompositions keyed on
+ * `(aquifer, keys, freshness)` — the building block for [collectAsStateMany], exposed
+ * for cases that need the raw [Flow] (custom operators, `produceState`, snapshotting in effects).
+ * The multi-key counterpart to [rememberStream]. Keyed on the [keys] set by value, so passing a
+ * fresh set with the same contents across recompositions reuses the same stream — but pass an
+ * immutable/stable set: mutating a `MutableSet` in place (same instance) won't restart the stream,
+ * since `remember` compares it equal to itself.
+ */
+@Composable
+public fun <K : Any, V : Any> Aquifer<K, V>.rememberStreamMany(
+    keys: Set<K>,
+    freshness: Freshness = Freshness.StaleWhileRevalidate,
+): Flow<Map<K, DataState<V>>> = remember(this, keys, freshness) { streamMany(keys, freshness) }

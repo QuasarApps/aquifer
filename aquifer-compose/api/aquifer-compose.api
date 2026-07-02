@@ -1,6 +1,8 @@
 public final class io/github/quasarapps/aquifer/compose/ComposeAquiferKt {
 	public static final fun collectAsState-8_Fu-04 (Lio/github/quasarapps/aquifer/Aquifer;Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;Landroidx/lifecycle/LifecycleOwner;Landroidx/lifecycle/Lifecycle$State;Lkotlin/coroutines/CoroutineContext;Landroidx/compose/runtime/Composer;II)Landroidx/compose/runtime/State;
+	public static final fun collectAsStateMany (Lio/github/quasarapps/aquifer/Aquifer;Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;Landroidx/lifecycle/LifecycleOwner;Landroidx/lifecycle/Lifecycle$State;Lkotlin/coroutines/CoroutineContext;Landroidx/compose/runtime/Composer;II)Landroidx/compose/runtime/State;
 	public static final fun rememberStream-Tnuy9kA (Lio/github/quasarapps/aquifer/Aquifer;Ljava/lang/Object;Lio/github/quasarapps/aquifer/Freshness;Lkotlin/time/Duration;Landroidx/compose/runtime/Composer;II)Lkotlinx/coroutines/flow/Flow;
+	public static final fun rememberStreamMany (Lio/github/quasarapps/aquifer/Aquifer;Ljava/util/Set;Lio/github/quasarapps/aquifer/Freshness;Landroidx/compose/runtime/Composer;II)Lkotlinx/coroutines/flow/Flow;
 }
 
 public final class io/github/quasarapps/aquifer/compose/PreviewAquiferKt {
