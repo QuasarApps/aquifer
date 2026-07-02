@@ -8,8 +8,9 @@ tested and every trade-off written down.
 **How to read this:** milestones are sorted by importance; items within a milestone are
 sorted by leverage (impact ÷ effort). Effort: **S** ≈ a day, **M** ≈ a few days, **L** ≈ a
 week+, **XL** ≈ multiple weeks. Checked boxes are shipped. Numbers like
-[#12](https://github.com/QuasarApps/Aquifer/issues/12) are tracked issues (GitHub does not
-auto-link `#N` in rendered Markdown, so cited items are linked explicitly).
+[#12](https://github.com/QuasarApps/Aquifer/issues/12) are tracked issues; GitHub does not
+auto-link `#N` in rendered Markdown, so the primary open-item citations are linked explicitly
+(most other `#N` references remain bare).
 
 ---
 
