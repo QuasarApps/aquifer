@@ -192,12 +192,19 @@ N-round-trip behavior or force a contract break mid-milestone.
 
 The engine's guarantees deserve machine-checked evidence.
 
-- [ ] **Lincheck concurrency tests** — model-check the fencing/single-flight invariants
-  (linearizability of put/invalidate/fetch-commit) instead of relying on hand-written
-  interleavings; the strongest possible backing for the epoch design. The register-then-fence
-  window fixed in #42 (a latent epoch-capture race the hand-written `MutationFencingTest` missed
-  for months) is exactly the kind of bug this would have caught mechanically — its successor
-  windows belong in the target set. *(L)*
+- [ ] **Lincheck concurrency tests** — model-check the engine's invariants instead of relying on
+  hand-written interleavings; the strongest possible backing for the epoch design. *Harness + first
+  tests shipped* (Lincheck 2.39 on a JDK-21 runner, isolated in a dedicated `lincheckTest` task +
+  CI job so slow model-checking stays out of `check`/`build`): linearizability of `MemoryCache`, the
+  negative cache's `BoundedLruMap`, and the real engine's fetch-free mutation region
+  (`put`/`invalidate`/`invalidateAll`/`get(CacheOnly)` under `commitGuard`). That last one doubles
+  as the canary confirming `suspend` `@Operation`s + a coroutine `Mutex` are Lincheck-schedulable.
+  **Remaining (the flagship #42-catching part):** the fetch commit — which alone writes memory
+  without moving the epoch — runs on the injected scope, outside Lincheck's control, so the fencing
+  and single-flight invariants can't be checked on the engine as-is. They need the epoch/registry
+  primitives *extracted* from `RealAquifer` (extraction-with-delegation, so the model stays the
+  production code) and model-checked directly — a follow-up that also carries the #13/#20 residual
+  race. *(L, in progress)*
 - [ ] **[#13](https://github.com/QuasarApps/aquifer/issues/13) — bounded `keyEpochs`** *(deferred — needs Lincheck)* — the live-fetch refcount
   sketched in the issue is **necessary but insufficient**: it covers only the fetch capture site,
   while `load`/`loadAll`/stream-preload also capture a `(globalEpoch, 0)` snapshot on off-lock,
