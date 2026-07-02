@@ -6,6 +6,9 @@
 
 **An offline-first, stale-while-revalidate data layer for Kotlin and Android.**
 
+> **JVM & Android today.** Aquifer targets Kotlin/JVM and Android (compiled to `JvmTarget.JVM_11`).
+> Kotlin Multiplatform is a post-1.0 goal on the [roadmap](ROADMAP.md), not yet shipped.
+
 Aquifer sits between your remote API and your UI as the single source of truth for keyed data.
 You declare *how to fetch* and *how fresh data must be*; Aquifer decides when to serve the
 cache, when to hit the network, and keeps every observer of a key in sync — through
@@ -483,6 +486,13 @@ val repo = UserRepository(users)
 assertEquals(User("grace"), repo.load("grace"))
 assertEquals(1, users.fetchCount("grace")) // assert it fetched, exactly once
 ```
+
+`fakeAquifer` trades a few of the real engine's behaviors for determinism: it has **no
+time-to-live** (a cached value never goes stale on its own, so `maxAge` is validated but inert),
+**no single-flight deduplication** (two *concurrent* loads of the same missing key each fetch and
+each count), and reports `stats()` as `CacheStats.EMPTY` — assert on `fetchCount`/`fetchedKeys`
+instead. For TTL, staleness, or single-flight behavior, test against the real store paired with
+`FakeClock`.
 
 ## Design notes
 

@@ -7,8 +7,9 @@ tested and every trade-off written down.
 
 **How to read this:** milestones are sorted by importance; items within a milestone are
 sorted by leverage (impact ÷ effort). Effort: **S** ≈ a day, **M** ≈ a few days, **L** ≈ a
-week+, **XL** ≈ multiple weeks. Checked boxes are shipped. Numbers like #12 are tracked
-issues.
+week+, **XL** ≈ multiple weeks. Checked boxes are shipped. Numbers like
+[#12](https://github.com/QuasarApps/aquifer/issues/12) are tracked issues; the primary RFC/issue
+citations are linked explicitly for one-click navigation (most other `#N` references remain bare).
 
 ---
 
@@ -69,7 +70,7 @@ What every consuming app touches daily; highest user-facing leverage.
   (mirroring `streamMany`). `previewAquifer` already backs `streamMany`, so multi-key `@Preview`s
   need no extra wiring. The lighter, in-scope half of multi-key support — distinct from the deferred
   Paging bridge. *(M)*
-- [x] **`DataState.Empty` / observable deletion** — designed in RFC #23, shipped as a new
+- [x] **`DataState.Empty` / observable deletion** — designed in RFC [#23](https://github.com/QuasarApps/aquifer/issues/23), shipped as a new
   sealed member emitted only to `CacheOnly` streams (initial miss and observed
   `invalidate`/`invalidateAll`); fetch-capable streams keep signalling through their
   refetch. Replaces the dishonest `Failure(CacheMissException)` miss emission;
@@ -103,7 +104,7 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   (a fresh entry triggers nothing), shares the single-flight fetch with concurrent
   reads, stands down under negative caching, and never throws (failures surface through
   events). *(S)*
-- [x] **Batched fetching, phase 1** (RFC #29) — a `batchFetcher { keys -> Map }` builder
+- [x] **Batched fetching, phase 1** (RFC [#29](https://github.com/QuasarApps/aquifer/issues/29)) — a `batchFetcher { keys -> Map }` builder
   option and `getAll(keys, freshness)` that collapses N keys into one backend call, reusing
   the per-key machinery (single-flight, fencing, negative caching, persistence, events) so
   batching is a pure transport optimization; a single `get`/`stream`/`prefetch` is a batch of
@@ -143,7 +144,7 @@ Make the fetch path cheap and stampede-proof under real-world conditions.
   #51 wired `okHttpConditionalFetcher(respectCacheControl = true)` to parse `max-age` (minus
   `Age`), `no-store`/`no-cache`/`max-age=0` → immediately stale, and `Expires` as a fallback.
   Opt-in, so *the app declares how fresh data must be* stays the default stance. *(M)*
-- [ ] **#12 — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
+- [ ] **[#12](https://github.com/QuasarApps/aquifer/issues/12) — benchmark, then stripe the commit guard** — JMH-style harness for concurrent
   commit throughput against a real file store; implement per-key lock striping only if the
   numbers justify it (constraints documented in the issue). *(M–L)*
 
@@ -197,7 +198,7 @@ The engine's guarantees deserve machine-checked evidence.
   window fixed in #42 (a latent epoch-capture race the hand-written `MutationFencingTest` missed
   for months) is exactly the kind of bug this would have caught mechanically — its successor
   windows belong in the target set. *(L)*
-- [ ] **#13 — bounded `keyEpochs`** *(deferred — needs Lincheck)* — the live-fetch refcount
+- [ ] **[#13](https://github.com/QuasarApps/aquifer/issues/13) — bounded `keyEpochs`** *(deferred — needs Lincheck)* — the live-fetch refcount
   sketched in the issue is **necessary but insufficient**: it covers only the fetch capture site,
   while `load`/`loadAll`/stream-preload also capture a `(globalEpoch, 0)` snapshot on off-lock,
   non-fetch paths, and even the fetch capture races its own refcount increment. Any fetch-scoped
@@ -241,13 +242,17 @@ The engine's guarantees deserve machine-checked evidence.
   soft cap / chunked emission was evaluated and deferred — no
   logging seam exists, the right threshold is caller-dependent, and docs + characterization let
   callers decide; a cap can follow a concrete request. *(M)*
-- [ ] **Docs-accuracy pass** — fix the inconsistencies the project review surfaced: link the
-  cited RFC/issue numbers (#12, #13, #23, #29) to their GitHub items instead of citing bare
-  internal numbers; surface `fakeAquifer`'s deliberate divergences (no TTL, no single-flight
-  dedup, `CacheStats.EMPTY`) in the README testing section, not just the CHANGELOG; align the
-  `collectAsState` initial-state wording (`Loading(null)`) across README/CHANGELOG/ROADMAP;
-  state "JVM/Android only today" prominently near the top of the README; and fix the stale
-  `TestHelpers.kt` reference in CONTRIBUTING (the helper now lives in `aquifer-test`). *(S)*
+- [x] **Docs-accuracy pass** (shipped) — reconciled the inconsistencies the project review
+  surfaced: linked the primary RFC/issue citations to their GitHub items for one-click navigation;
+  surfaced `fakeAquifer`'s deliberate
+  divergences (no TTL, no single-flight dedup, `CacheStats.EMPTY`) in the README testing section;
+  and added a prominent "JVM/Android today" note near the top of the README. Two review items were
+  found already-accurate on inspection and left as-is: the `collectAsState` initial state is
+  consistently `Loading(null)` (README/CHANGELOG/KDoc; the multi-key `collectAsStateMany` starts
+  from an empty map *by design*), and the `TestHelpers.kt` reference in CONTRIBUTING is **not**
+  stale — that file still exists as `aquifer-core`'s internal test helper, distinct from the
+  *published* `settle()`/`FakeClock` twins in `aquifer-test` (the README testing section already
+  points consumers there). *(S)*
 - [ ] **Sample Android app** — a small Compose app demoing airplane-mode survival,
   pull-to-refresh coherence, and reconnect revalidation on a device. *(L)*
 
@@ -256,13 +261,24 @@ The engine's guarantees deserve machine-checked evidence.
 Small, high-frequency conveniences surfaced while building the feature set; each must keep
 the existing fencing and single-flight guarantees.
 
-- [ ] **`evictMemory()` / `trimToSize(n)`** — shed the in-memory tier without touching
-  persistence (rehydrating from disk on the next read), so a long-lived store can answer
-  Android's `onTrimMemory`/`onLowMemory`. Today only `invalidateAll` drops memory, and it wipes
-  persistence too; the memory cache is purely count-bounded (`maxEntries`) with no size or
-  pressure awareness. Composes with the existing fenced commit and hydrating `load()`. An
-  optional proactive memory-TTL sweep (drop entries past their TTL instead of waiting for LRU
-  pressure) is a natural companion. *(M)*
+- [ ] **`evictMemory()` / `trimToSize(n)`** *(deferred — blocked on the hydration-race fix below)* —
+  shed the in-memory tier without touching persistence (rehydrating from disk on the next read), so a
+  long-lived store can answer Android's `onTrimMemory`/`onLowMemory`. Today only `invalidateAll` drops
+  memory, and it wipes persistence too. The two methods themselves are simple (non-suspending, silent,
+  memory-only), but a design + adversarial-verification pass found `evictMemory` exposes the residual
+  hydration race below: clearing a just-committed **MRU** entry that a suspended `load()` relies on for
+  its under-lock memory re-check lets `load` hydrate its stale pre-lock disk snapshot over the fresher
+  commit (a narrow, self-healing stale read — it does *not* touch epoch-fenced invalidated/`put` data).
+  Cannot ship soundly until that race is closed. An optional proactive memory-TTL sweep is a separate
+  companion. *(M, blocked)*
+- [ ] **Close the `load()`/`loadAll()` residual hydration race** — `load` reads persistence *outside*
+  `commitGuard` and re-checks only memory under the lock; since fetch commits don't move the epoch, that
+  memory re-check is the sole guard against hydrating a stale snapshot over a fresher commit, and it is
+  reliable today only because LRU never evicts the MRU commit mid-window. Documented on issue #13's
+  thread; promoted here because it blocks `evictMemory`. Fix options: re-read persistence under
+  `commitGuard` in the hydrate branch (I/O-under-lock — benchmark first, see #12), or a per-key
+  last-commit-sequence trace surviving eviction (adds bounded per-key state). Best designed alongside the
+  Lincheck harness. *(M)*
 - [ ] **Key-scoped policy resolver** — let one store apply heterogeneous TTL (and later
   retry/negative-cache) by key subtype — `freshness { timeToLiveFor = { key -> … } }` — instead
   of spinning up a separate `Aquifer` per policy (which duplicates the memory cache, scope, and
