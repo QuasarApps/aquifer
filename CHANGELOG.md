@@ -7,6 +7,18 @@ versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added — bounded negative cache
+
+- `negativeCache { maxEntries = … }` (default 512) LRU-bounds the failure memory, which was
+  otherwise unbounded — a wide key space of one-time failures (e.g. a search store hitting transient
+  errors on distinct queries) grew it by a record per key until `invalidateAll`. Bounding is
+  correctness-neutral: a negative record carries no value, so evicting one only re-permits an
+  (already epoch-fenced) fetch of that key — the sole cost is losing that key's stretched backoff
+  window. Eviction is least-recently-consulted and never privileges expired records (which carry the
+  consecutive-failure streak). This is the sound half of issue #13; bounding `keyEpochs` remains
+  deferred — the live-fetch refcount sketch is insufficient (it misses the `load`/`loadAll`/stream
+  capture sites), so a sound eviction needs the planned Lincheck harness.
+
 ### Added — multi-key Compose binding
 
 - `aquifer-compose` gains `collectAsStateMany(keys)` and `rememberStreamMany(keys)`, the multi-key

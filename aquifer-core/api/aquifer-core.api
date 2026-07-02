@@ -256,9 +256,11 @@ public final class io/github/quasarapps/aquifer/MemoryCacheConfig {
 
 public final class io/github/quasarapps/aquifer/NegativeCacheConfig {
 	public final fun getBackoffMultiplier ()D
+	public final fun getMaxEntries ()I
 	public final fun getMaxTimeToLive-UwyO8pc ()J
 	public final fun getTimeToLive-UwyO8pc ()J
 	public final fun setBackoffMultiplier (D)V
+	public final fun setMaxEntries (I)V
 	public final fun setMaxTimeToLive-LRDsOJo (J)V
 	public final fun setTimeToLive-LRDsOJo (J)V
 }

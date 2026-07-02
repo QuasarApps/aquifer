@@ -197,13 +197,23 @@ The engine's guarantees deserve machine-checked evidence.
   window fixed in #42 (a latent epoch-capture race the hand-written `MutationFencingTest` missed
   for months) is exactly the kind of bug this would have caught mechanically — its successor
   windows belong in the target set. *(L)*
-- [ ] **#13 — bounded `keyEpochs` *and* the negative-cache map** — implement the live-fetch
-  refcount eviction sketched in the issue, with the proof written down (the naive evictions are
-  provably unsound). Fold in the `negative` map: it has the identical unbounded-growth
-  lifecycle (records are reclaimed only on success/`put`/`invalidate`, and an *expired* record
-  is deliberately kept to preserve the failure streak), so a wide key space of one-time
-  failures — a search/autocomplete store hitting transient 5xx — retains an entry per key
-  forever. Same eviction reasoning, one proof, no second leak shipped after the first. *(M)*
+- [ ] **#13 — bounded `keyEpochs`** *(deferred — needs Lincheck)* — the live-fetch refcount
+  sketched in the issue is **necessary but insufficient**: it covers only the fetch capture site,
+  while `load`/`loadAll`/stream-preload also capture a `(globalEpoch, 0)` snapshot on off-lock,
+  non-fetch paths, and even the fetch capture races its own refcount increment. Any fetch-scoped
+  refcount looks correct against today's (fetch-only) interleaving tests yet silently un-fences the
+  hydration and stream paths — a subtly-wrong break of the crown-jewel "never resurrect deleted
+  data" guarantee, which the issue rates worse than the leak. A sound eviction needs an
+  atomic-capture protocol across the hot read path, i.e. the Lincheck harness above. Deferred until
+  then. (The `invalidateWhere`-over-disk-only-keys growth vector remains too.) *(M, blocked on Lincheck)*
+- [x] **Bound the negative-cache map** (shipped) — the `negative` map had the same unbounded-growth
+  lifecycle (a wide key space of one-time failures — a search/autocomplete store hitting transient
+  5xx — retained a record per key until `invalidateAll`), but bounding it is **sound and independent**
+  of the `keyEpochs` proof: a negative record carries no value, so evicting one can only re-permit an
+  already-epoch-fenced fetch (a QoS/backoff regression, never a resurrection). Shipped as
+  `negativeCache { maxEntries }` (default 512) over an access-ordered `BoundedLruMap` with inline LRU
+  eviction under the map's own monitor (independent of `commitGuard`); uniform order, *not*
+  expired-first (which would erase the failure streak the map preserves). *(S)*
 - [x] **`stats()` snapshot API** — shipped as `stats(): CacheStats`: non-suspending per-store
   counters (hits, misses, evictions, in-flight gauge, plus derived reads/hitRate), the numbers
   `AquiferEvents` can't aggregate. Counted at the caller-read chokepoints (get/getAll/stream
