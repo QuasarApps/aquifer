@@ -243,8 +243,8 @@ The engine's guarantees deserve machine-checked evidence.
   logging seam exists, the right threshold is caller-dependent, and docs + characterization let
   callers decide; a cap can follow a concrete request. *(M)*
 - [x] **Docs-accuracy pass** (shipped) — reconciled the inconsistencies the project review
-  surfaced: linked the primary RFC/issue citations (#12, #13, #23, #29) to their GitHub items for
-  one-click navigation; surfaced `fakeAquifer`'s deliberate
+  surfaced: linked the primary RFC/issue citations to their GitHub items for one-click navigation;
+  surfaced `fakeAquifer`'s deliberate
   divergences (no TTL, no single-flight dedup, `CacheStats.EMPTY`) in the README testing section;
   and added a prominent "JVM/Android today" note near the top of the README. Two review items were
   found already-accurate on inspection and left as-is: the `collectAsState` initial state is
