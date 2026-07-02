@@ -77,4 +77,20 @@ public class NegativeCacheConfig internal constructor() {
             }
             field = value
         }
+
+    /**
+     * Maximum number of failure records kept at once. The failure memory is otherwise unbounded
+     * (a record per failing key, cleared only on that key's success or mutation), so a wide space
+     * of one-time failures — e.g. a search store hitting transient errors on distinct queries —
+     * would grow it without limit. When this cap is exceeded a new failure evicts the
+     * least-recently-consulted record; evicting a record only re-permits a fetch of that key (it
+     * carries no cached value), so the sole cost is losing that key's stretched backoff window —
+     * a fetch it re-permits is still fenced exactly like any other. Must be positive. Defaults to
+     * 512, matching the memory cache's default.
+     */
+    public var maxEntries: Int = 512
+        set(value) {
+            require(value > 0) { "maxEntries must be positive, was $value" }
+            field = value
+        }
 }

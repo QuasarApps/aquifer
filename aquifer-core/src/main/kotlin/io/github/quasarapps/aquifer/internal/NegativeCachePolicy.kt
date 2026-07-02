@@ -10,6 +10,9 @@ internal class NegativeCachePolicy(config: NegativeCacheConfig) {
     private val multiplier = config.backoffMultiplier
     private val maxTimeToLive = config.maxTimeToLive
 
+    /** Cap on retained failure records; see [NegativeCacheConfig.maxEntries]. */
+    val maxEntries = config.maxEntries
+
     /**
      * Suppression window for the [consecutiveFailures]-th straight failure of a key:
      * `timeToLive × multiplier^(n−1)`, capped at [maxTimeToLive]. Computed by repeated

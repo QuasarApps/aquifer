@@ -372,6 +372,7 @@ negativeCache {
     timeToLive = 30.seconds      // remember failures this long
     backoffMultiplier = 2.0      // consecutive failures stretch the window
     maxTimeToLive = 5.minutes    // hard cap
+    maxEntries = 512             // bound the failure memory (LRU); default 512
 }
 ```
 
@@ -379,7 +380,9 @@ During the window, reads serve cached data when it exists (stale-if-error, witho
 re-asking the network) and otherwise fail fast with the *remembered* error; new stream
 subscribers see it instantly instead of triggering another doomed request. `fresh()` /
 `NetworkOnly` still go to the network — an explicit demand is honoured — and any success,
-`put`, or `invalidate` clears the memory.
+`put`, or `invalidate` clears the memory. The failure memory is LRU-bounded by `maxEntries`,
+so an unbounded key space of one-time failures can't grow it forever; evicting a record only
+re-permits a fetch of that key (records carry no value, so it never resurrects data).
 
 ### Refresh on reconnect (or foreground)
 

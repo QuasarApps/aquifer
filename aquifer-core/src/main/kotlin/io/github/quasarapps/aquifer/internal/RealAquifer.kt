@@ -135,8 +135,13 @@ internal class RealAquifer<K : Any, V : Any>(
      * successful commit or on [put]/[invalidate]/[invalidateAll] — an *expired* entry stays,
      * no longer suppressing but still carrying the consecutive-failure streak, so a
      * chronically failing key keeps its stretched window between spaced-out probes.
+     *
+     * Bounded (LRU) so an unbounded key space of one-time failures can't grow it forever; the cap
+     * is [NegativeCacheConfig.maxEntries]. Eviction is correctness-neutral — a record holds no
+     * value, so dropping one only re-permits an (already-fenced) fetch of that key. When negative
+     * caching is disabled the map stays empty, so its cap is irrelevant.
      */
-    private val negative = ConcurrentHashMap<K, NegativeEntry>()
+    private val negative = BoundedLruMap<K, NegativeEntry>(negativeCache?.maxEntries ?: 1)
 
     private class NegativeEntry(
         val error: Throwable,
@@ -168,7 +173,7 @@ internal class RealAquifer<K : Any, V : Any>(
      */
     private fun activeSuppression(key: K, now: Long = clock.nowMillis()): NegativeEntry? {
         if (negativeCache == null) return null
-        val entry = negative[key] ?: return null
+        val entry = negative.get(key) ?: return null
         // Expired: fetching is allowed again, but the record stays — the streak resets only
         // on success or mutation, never by the mere passage of time.
         return if (now >= entry.suppressUntilMillis) null else entry
@@ -184,14 +189,14 @@ internal class RealAquifer<K : Any, V : Any>(
     /** Remembers a terminal [failure] of [key]; consecutive failures stretch the window. */
     private fun recordFailure(key: K, failure: Throwable) {
         val policy = negativeCache ?: return
-        val failures = (negative[key]?.consecutiveFailures ?: 0) + 1
+        val failures = (negative.get(key)?.consecutiveFailures ?: 0) + 1
         val window = policy.windowFor(failures)
         // Millisecond deadlines on a millisecond clock: round the window UP, so a
         // sub-millisecond timeToLive still suppresses until the next tick instead of
         // truncating to "never" (the same hazard isExpired avoids for maxAge).
         val floor = window.inWholeMilliseconds
         val windowMillis = if (floor.milliseconds < window) floor + 1 else floor
-        negative[key] = NegativeEntry(failure, failures, clock.nowMillis() + windowMillis)
+        negative.put(key, NegativeEntry(failure, failures, clock.nowMillis() + windowMillis))
     }
 
     init {
@@ -738,7 +743,7 @@ internal class RealAquifer<K : Any, V : Any>(
             addAll(memory.keys())
             addAll(activeKeys.keys)
             addAll(inFlight.keys)
-            addAll(negative.keys)
+            addAll(negative.keys())
             addAll(keyEpochs.keys)
         }.filterTo(LinkedHashSet(), predicate)
         // A store that can enumerate makes the predicate disk-wide: it also reaches persisted keys

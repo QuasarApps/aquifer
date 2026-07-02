@@ -283,5 +283,45 @@ class NegativeCachingTest {
                 }
             }
         }
+        assertFailsWith<IllegalArgumentException> {
+            aquifer<String, Int> {
+                fetcher { 1 }
+                negativeCache { maxEntries = 0 }
+            }
+        }
+    }
+
+    @Test
+    fun `maxEntries bounds the failure memory, evicting the least-recently-used record`() = runTest {
+        val fetched = mutableListOf<String>()
+        val store = aquifer<String, Int> {
+            scope(backgroundScope)
+            fetcher { key ->
+                fetched += key
+                throw Boom(fetched.size)
+            }
+            // Long window so nothing expires mid-test; cap of 2 forces LRU eviction at the 3rd key.
+            negativeCache {
+                timeToLive = 30.seconds
+                maxEntries = 2
+            }
+        }
+
+        // Fail three distinct keys. Recording k3 pushes the map to 3 > cap, evicting the LRU
+        // record — k1, the least-recently-inserted (no read reorders an absent key before this).
+        assertFailsWith<Boom> { store.get("k1") }
+        assertFailsWith<Boom> { store.get("k2") }
+        assertFailsWith<Boom> { store.get("k3") }
+        assertEquals(listOf("k1", "k2", "k3"), fetched)
+
+        // k2 and k3 are still remembered: suppressed, rethrown, no new fetch.
+        assertFailsWith<Boom> { store.get("k2") }
+        assertFailsWith<Boom> { store.get("k3") }
+        assertEquals(listOf("k1", "k2", "k3"), fetched, "still-remembered keys are suppressed, not re-fetched")
+
+        // k1's record was evicted, so its fetch is re-permitted. Eviction only re-permits a fetch;
+        // a negative record carries no value, so this can never resurrect stale data.
+        assertFailsWith<Boom> { store.get("k1") }
+        assertEquals(listOf("k1", "k2", "k3", "k1"), fetched, "the evicted key fetches again")
     }
 }
