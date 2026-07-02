@@ -36,7 +36,24 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    // Lincheck's linearizability model-checking takes minutes; keep it out of the fast unit-test
+    // task (and therefore out of `check`/`build`). It runs in the dedicated `lincheckTest` task.
+    useJUnitPlatform {
+        excludeTags("lincheck")
+    }
+}
+
+// Concurrency tests (Lincheck): slow, run on demand or in a dedicated CI job — not wired into
+// `check`, so `./gradlew build` stays fast. Reuses the test source set's output and classpath.
+val lincheckTest by tasks.registering(Test::class) {
+    description = "Runs Lincheck concurrency (linearizability) tests; slow, excluded from `check`."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("lincheck")
+    }
+    shouldRunAfter(tasks.test)
 }
 
 mavenPublishing {
