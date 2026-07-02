@@ -206,13 +206,14 @@ The engine's guarantees deserve machine-checked evidence.
   data" guarantee, which the issue rates worse than the leak. A sound eviction needs an
   atomic-capture protocol across the hot read path, i.e. the Lincheck harness above. Deferred until
   then. (The `invalidateWhere`-over-disk-only-keys growth vector remains too.) *(M, blocked on Lincheck)*
-- [ ] **Bound the negative-cache map** — the `negative` map has the same unbounded-growth lifecycle
-  (a wide key space of one-time failures — a search/autocomplete store hitting transient 5xx —
-  retains a record per key until `invalidateAll`), but bounding it is **sound and independent** of
-  the `keyEpochs` proof: a negative record carries no value, so evicting one can only re-permit an
-  already-epoch-fenced fetch (a QoS/backoff regression, never a resurrection). Bound it with a
-  configurable cap and write-side (under-`commitGuard`) eviction — uniform order, *not* expired-first
-  (that would erase the very failure streak the map preserves). *(S)*
+- [x] **Bound the negative-cache map** (shipped) — the `negative` map had the same unbounded-growth
+  lifecycle (a wide key space of one-time failures — a search/autocomplete store hitting transient
+  5xx — retained a record per key until `invalidateAll`), but bounding it is **sound and independent**
+  of the `keyEpochs` proof: a negative record carries no value, so evicting one can only re-permit an
+  already-epoch-fenced fetch (a QoS/backoff regression, never a resurrection). Shipped as
+  `negativeCache { maxEntries }` (default 512) over an access-ordered `BoundedLruMap` with inline LRU
+  eviction under the map's own monitor (independent of `commitGuard`); uniform order, *not*
+  expired-first (which would erase the failure streak the map preserves). *(S)*
 - [x] **`stats()` snapshot API** — shipped as `stats(): CacheStats`: non-suspending per-store
   counters (hits, misses, evictions, in-flight gauge, plus derived reads/hitRate), the numbers
   `AquiferEvents` can't aggregate. Counted at the caller-read chokepoints (get/getAll/stream

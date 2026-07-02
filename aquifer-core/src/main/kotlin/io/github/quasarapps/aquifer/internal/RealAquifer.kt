@@ -141,7 +141,7 @@ internal class RealAquifer<K : Any, V : Any>(
      * value, so dropping one only re-permits an (already-fenced) fetch of that key. When negative
      * caching is disabled the map stays empty, so its cap is irrelevant.
      */
-    private val negative = BoundedLruMap<K, NegativeEntry>(negativeCache?.maxEntries ?: 1)
+    private val negative = BoundedLruMap<K, NegativeEntry>(negativeCache?.maxEntries ?: NEGATIVE_CACHE_DISABLED_CAP)
 
     private class NegativeEntry(
         val error: Throwable,
@@ -1352,6 +1352,10 @@ internal class RealAquifer<K : Any, V : Any>(
 
     internal companion object {
         const val EVENT_BUFFER_CAPACITY = 64
+
+        // Placeholder cap for the negative cache when negative caching is disabled: the map is
+        // never written in that case, so any positive value is inert — this just documents intent.
+        const val NEGATIVE_CACHE_DISABLED_CAP = 1
 
         /**
          * Resolves a new collector's initial snapshot from the pre-subscription hydration
