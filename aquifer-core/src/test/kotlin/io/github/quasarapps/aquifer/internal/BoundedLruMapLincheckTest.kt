@@ -11,7 +11,7 @@ import kotlin.test.Test
 
 /**
  * Lincheck linearizability check of [BoundedLruMap] (the structure backing the bounded negative
- * cache): all access is guarded by one monitor, so concurrent `get`/`put`/`remove` must be
+ * cache): all access is guarded by one monitor, so concurrent `get`/`put`/`remove`/`clear` must be
  * linearizable to some sequential order. A large `maxEntries` keeps eviction out of this check, so
  * the sequential specification is a plain map that Lincheck derives from sequential execution.
  *
@@ -31,6 +31,9 @@ class BoundedLruMapLincheckTest {
 
     @Operation
     fun remove(@Param(name = "key") key: Int) = map.remove(key)
+
+    @Operation
+    fun clear() = map.clear()
 
     @Test
     fun stressTest() = StressOptions()

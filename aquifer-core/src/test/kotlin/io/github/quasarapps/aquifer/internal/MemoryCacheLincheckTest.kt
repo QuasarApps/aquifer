@@ -35,6 +35,9 @@ class MemoryCacheLincheckTest {
     @Operation
     fun remove(@Param(name = "key") key: Int) = cache.remove(key)
 
+    @Operation
+    fun clear() = cache.clear()
+
     @Test
     fun stressTest() = StressOptions()
         .iterations(30)
