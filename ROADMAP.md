@@ -8,9 +8,8 @@ tested and every trade-off written down.
 **How to read this:** milestones are sorted by importance; items within a milestone are
 sorted by leverage (impact ÷ effort). Effort: **S** ≈ a day, **M** ≈ a few days, **L** ≈ a
 week+, **XL** ≈ multiple weeks. Checked boxes are shipped. Numbers like
-[#12](https://github.com/QuasarApps/Aquifer/issues/12) are tracked issues; GitHub does not
-auto-link `#N` in rendered Markdown, so the primary RFC/issue citations are linked explicitly
-(most other `#N` references remain bare).
+[#12](https://github.com/QuasarApps/Aquifer/issues/12) are tracked issues; the primary RFC/issue
+citations are linked explicitly for one-click navigation (most other `#N` references remain bare).
 
 ---
 
@@ -244,8 +243,8 @@ The engine's guarantees deserve machine-checked evidence.
   logging seam exists, the right threshold is caller-dependent, and docs + characterization let
   callers decide; a cap can follow a concrete request. *(M)*
 - [x] **Docs-accuracy pass** (shipped) — reconciled the inconsistencies the project review
-  surfaced: linked the primary RFC/issue citations (#12, #13, #23, #29) to their GitHub items
-  (GitHub does not auto-link `#N` in rendered `.md`); surfaced `fakeAquifer`'s deliberate
+  surfaced: linked the primary RFC/issue citations (#12, #13, #23, #29) to their GitHub items for
+  one-click navigation; surfaced `fakeAquifer`'s deliberate
   divergences (no TTL, no single-flight dedup, `CacheStats.EMPTY`) in the README testing section;
   and added a prominent "JVM/Android today" note near the top of the README. Two review items were
   found already-accurate on inspection and left as-is: the `collectAsState` initial state is

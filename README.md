@@ -487,11 +487,11 @@ assertEquals(User("grace"), repo.load("grace"))
 assertEquals(1, users.fetchCount("grace")) // assert it fetched, exactly once
 ```
 
-`fakeAquifer` trades a few of the real engine's behaviours for determinism: it has **no
+`fakeAquifer` trades a few of the real engine's behaviors for determinism: it has **no
 time-to-live** (a cached value never goes stale on its own, so `maxAge` is validated but inert),
-**no single-flight de-duplication** (two *concurrent* loads of the same missing key each fetch and
+**no single-flight deduplication** (two *concurrent* loads of the same missing key each fetch and
 each count), and reports `stats()` as `CacheStats.EMPTY` — assert on `fetchCount`/`fetchedKeys`
-instead. For TTL, staleness, or single-flight behaviour, test against the real store paired with
+instead. For TTL, staleness, or single-flight behavior, test against the real store paired with
 `FakeClock`.
 
 ## Design notes
